@@ -1,8 +1,14 @@
 [package]
+edition = "2021"
 name = "riki"
 version = "0.1.0"
-edition = "2021"
-
+authors = ["Thomas Leon Highbaugh me@thomasleonhighbaugh.me"]
+keywords = [
+  "wiki",
+  "personal knowledge manager",
+  "second brain",
+  "digital garden",
+]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -21,3 +27,4 @@ url = "2"
 reqwest = { version = "0.11", features = ["blocking"] }
 tempfile = "3"
 git2 = "0.16"
+dirs = "4"
