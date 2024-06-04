@@ -1,0 +1,23 @@
+[package]
+name = "riki"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+clap = { version = "4.0", features = ["derive"] }
+walkdir = "2.3"
+tantivy = "0.19"
+which = "4.3"
+memmap = "0.7"
+crossterm = "0.23"
+chrono = "0.4"
+regex = "1"
+pulldown_cmark = "0.9"
+url = "2"
+reqwest = { version = "0.11", features = ["blocking"] }
+tempfile = "3"
+git2 = "0.16"
