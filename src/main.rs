@@ -1,10 +1,9 @@
 // src/main.rs
 
+mod cli;
 mod config;
 mod wiki;
-mod cli;
 
-use clap::Parser;
 use cli::RikiCLI;
 use config::Config;
 
