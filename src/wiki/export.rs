@@ -1,98 +1,291 @@
-// src/wiki/export.rs
+// THIS IS THE FILE: src/wiki/export.rs
 
-use pulldown_cmark::{html, Options, Parser};
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
-use std::process::Command;
+use std::path::{Path, PathBuf};
 
 use crate::config::Config;
+use crate::wiki::page::Wiki;
+use pulldown_cmark::{html, Options, Parser};
 
-pub struct Wiki {
-    // ... other fields
+pub struct Export {
+    pub root_dir: PathBuf,
 }
 
-impl Wiki {
-    // ... other methods
-
-    pub fn export_page(
-        &self,
-        page_name: Option<&str>,
-        format: &str,
-        output_file: Option<&Path>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut output_content = String::new();
-
-        if let Some(page_name) = page_name {
-            // Export a single page
-            let content = self.read_page(page_name, &config)?;
-            output_content = content;
-        } else {
-            // Export all pages (currently just concatenates them)
-            for entry in walkdir::WalkDir::new(&self.root_dir)
-                .into_iter()
-                .filter_map(Result::ok)
-                .filter(|e| e.file_type().is_file())
-                .filter(|e| e.path().extension().map_or(false, |ext| ext == "md"))
-            {
-                let page_content = fs::read_to_string(entry.path())?;
-                output_content.push_str(&page_content);
-                output_content.push_str("\n");
-            }
+impl Export {
+    pub fn new(wiki: &Wiki) -> Export {
+        Export {
+            root_dir: wiki.root_dir.clone(),
         }
+    }
 
-        match format {
-            "html" => {
-                // Convert Markdown to HTML
-                let parser = Parser::new_ext(&output_content, Options::all());
-                html::push_html(&mut output_content, parser);
+    pub fn export_html(&self, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+        let output_dir = self.root_dir.join("export");
+        std::fs::create_dir_all(&output_dir)?;
 
-                // Write HTML to file
-                let output_path = output_file.unwrap_or_else(|| {
-                    self.root_dir
-                        .join(format!("{}.html", page_name.unwrap_or("all")))
-                });
-                let mut file = File::create(output_path)?;
-                file.write_all(output_content.as_bytes())?;
-                println!("Exported to HTML: {}", output_path.display());
-            }
-            "pdf" => {
-                // Export to PDF (requires external tools like Pandoc)
-                let output_path = output_file.unwrap_or_else(|| {
-                    self.root_dir
-                        .join(format!("{}.pdf", page_name.unwrap_or("all")))
-                });
-                let command = Command::new("pandoc")
-                    .arg("--from=markdown")
-                    .arg("--to=pdf")
-                    .arg(format!("--output={}", output_path.display()))
-                    .stdin(std::process::Stdio::piped())
-                    .spawn()?;
+        for entry in walkdir::WalkDir::new(&self.root_dir) {
+            if let Ok(entry) = entry {
+                // Only process Markdown files
+                if entry.file_type().is_file()
+                    && entry.path().extension().unwrap_or_default() == "md"
+                {
+                    // Construct the output path for the HTML file
+                    let page_name = entry
+                        .path()
+                        .strip_prefix(&self.root_dir)
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .replace(".md", "")
+                        .to_string();
+                    let output_path = output_dir.join(format!("{}.html", page_name));
 
-                if let Some(mut stdin) = command.stdin.take() {
-                    stdin.write_all(output_content.as_bytes())?;
+                    // Read the page content
+                    let content = self.read_page(&page_name, config)?;
+
+                    // Parse the Markdown and generate HTML
+                    let parser = Parser::new_ext(&content, Options::all());
+                    let mut html_output = String::new();
+                    html::push_html(&mut html_output, parser);
+
+                    // Write the HTML to the file
+                    let mut file = File::create(output_path)?;
+                    file.write_all(html_output.as_bytes())?;
                 }
-
-                command.wait_with_output()?;
-                println!("Exported to PDF: {}", output_path.display());
-            }
-            "text" => {
-                // Write plain text to file
-                let output_path = output_file.unwrap_or_else(|| {
-                    self.root_dir
-                        .join(format!("{}.txt", page_name.unwrap_or("all")))
-                });
-                let mut file = File::create(output_path)?;
-                file.write_all(output_content.as_bytes())?;
-                println!("Exported to plain text: {}", output_path.display());
-            }
-            _ => {
-                println!("Invalid format. Supported formats: html, pdf, text");
             }
         }
 
         Ok(())
     }
+
+    pub fn export_pdf(&self, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+        let output_dir = self.root_dir.join("export");
+        std::fs::create_dir_all(&output_dir)?;
+
+        for entry in walkdir::WalkDir::new(&self.root_dir) {
+            if let Ok(entry) = entry {
+                // Only process Markdown files
+                if entry.file_type().is_file()
+                    && entry.path().extension().unwrap_or_default() == "md"
+                {
+                    // Construct the output path for the PDF file
+                    let page_name = entry
+                        .path()
+                        .strip_prefix(&self.root_dir)
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .replace(".md", "")
+                        .to_string();
+                    let output_path = output_dir.join(format!("{}.pdf", page_name));
+
+                    // Read the page content
+                    let content = self.read_page(&page_name, config)?;
+
+                    // Convert Markdown to HTML using pulldown-cmark
+                    let parser = Parser::new_ext(&content, Options::all());
+                    let mut html_output = String::new();
+                    html::push_html(&mut html_output, parser);
+
+                    // Use a library like `wkhtmltopdf` to convert HTML to PDF
+                    let mut cmd = std::process::Command::new("wkhtmltopdf");
+                    cmd.arg("-").arg(output_path);
+                    cmd.stdin(std::process::Stdio::piped());
+                    let mut child = cmd.spawn()?;
+                    let mut stdin = child.stdin.take().unwrap();
+                    stdin.write_all(html_output.as_bytes())?;
+                    stdin.flush()?;
+                    let _ = child.wait()?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn export_txt(&self, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+        let output_dir = self.root_dir.join("export");
+        std::fs::create_dir_all(&output_dir)?;
+
+        for entry in walkdir::WalkDir::new(&self.root_dir) {
+            if let Ok(entry) = entry {
+                // Only process Markdown files
+                if entry.file_type().is_file()
+                    && entry.path().extension().unwrap_or_default() == "md"
+                {
+                    // Construct the output path for the text file
+                    let page_name = entry
+                        .path()
+                        .strip_prefix(&self.root_dir)
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .replace(".md", "")
+                        .to_string();
+                    let output_path = output_dir.join(format!("{}.txt", page_name));
+
+                    // Read the page content
+                    let content = self.read_page(&page_name, config)?;
+
+                    // Write the plain text content to the file
+                    let mut file = File::create(output_path)?;
+                    file.write_all(content.as_bytes())?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn read_page(&self, page_name: &str, config: &Config) -> Result<String, Box<dyn std::error::Error>> {
+        let wiki = Wiki::new(self.root_dir.clone(), config.templates_dir.clone(), config);
+        let content = wiki.read_page(page_name, config)?;
+
+        Ok(content)
+    }
+}// THIS IS THE FILE: src/wiki/export.rs
+
+use std::fs::File;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use crate::config::Config;
+use crate::wiki::page::Wiki;
+use pulldown_cmark::{html, Options, Parser};
+
+pub struct Export {
+    pub root_dir: PathBuf,
 }
 
-// ... (Helper functions: create_or_load_index, get_schema_fields, get_snippet, sanitize_tag, etc.)
+impl Export {
+    pub fn new(wiki: &Wiki) -> Export {
+        Export {
+            root_dir: wiki.root_dir.clone(),
+        }
+    }
+
+    pub fn export_html(&self, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+        let output_dir = self.root_dir.join("export");
+        std::fs::create_dir_all(&output_dir)?;
+
+        for entry in walkdir::WalkDir::new(&self.root_dir) {
+            if let Ok(entry) = entry {
+                // Only process Markdown files
+                if entry.file_type().is_file()
+                    && entry.path().extension().unwrap_or_default() == "md"
+                {
+                    // Construct the output path for the HTML file
+                    let page_name = entry
+                        .path()
+                        .strip_prefix(&self.root_dir)
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .replace(".md", "")
+                        .to_string();
+                    let output_path = output_dir.join(format!("{}.html", page_name));
+
+                    // Read the page content
+                    let content = self.read_page(&page_name, config)?;
+
+                    // Parse the Markdown and generate HTML
+                    let parser = Parser::new_ext(&content, Options::all());
+                    let mut html_output = String::new();
+                    html::push_html(&mut html_output, parser);
+
+                    // Write the HTML to the file
+                    let mut file = File::create(output_path)?;
+                    file.write_all(html_output.as_bytes())?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn export_pdf(&self, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+        let output_dir = self.root_dir.join("export");
+        std::fs::create_dir_all(&output_dir)?;
+
+        for entry in walkdir::WalkDir::new(&self.root_dir) {
+            if let Ok(entry) = entry {
+                // Only process Markdown files
+                if entry.file_type().is_file()
+                    && entry.path().extension().unwrap_or_default() == "md"
+                {
+                    // Construct the output path for the PDF file
+                    let page_name = entry
+                        .path()
+                        .strip_prefix(&self.root_dir)
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .replace(".md", "")
+                        .to_string();
+                    let output_path = output_dir.join(format!("{}.pdf", page_name));
+
+                    // Read the page content
+                    let content = self.read_page(&page_name, config)?;
+
+                    // Convert Markdown to HTML using pulldown-cmark
+                    let parser = Parser::new_ext(&content, Options::all());
+                    let mut html_output = String::new();
+                    html::push_html(&mut html_output, parser);
+
+                    // Use a library like `wkhtmltopdf` to convert HTML to PDF
+                    let mut cmd = std::process::Command::new("wkhtmltopdf");
+                    cmd.arg("-").arg(output_path);
+                    cmd.stdin(std::process::Stdio::piped());
+                    let mut child = cmd.spawn()?;
+                    let mut stdin = child.stdin.take().unwrap();
+                    stdin.write_all(html_output.as_bytes())?;
+                    stdin.flush()?;
+                    let _ = child.wait()?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn export_txt(&self, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+        let output_dir = self.root_dir.join("export");
+        std::fs::create_dir_all(&output_dir)?;
+
+        for entry in walkdir::WalkDir::new(&self.root_dir) {
+            if let Ok(entry) = entry {
+                // Only process Markdown files
+                if entry.file_type().is_file()
+                    && entry.path().extension().unwrap_or_default() == "md"
+                {
+                    // Construct the output path for the text file
+                    let page_name = entry
+                        .path()
+                        .strip_prefix(&self.root_dir)
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .replace(".md", "")
+                        .to_string();
+                    let output_path = output_dir.join(format!("{}.txt", page_name));
+
+                    // Read the page content
+                    let content = self.read_page(&page_name, config)?;
+
+                    // Write the plain text content to the file
+                    let mut file = File::create(output_path)?;
+                    file.write_all(content.as_bytes())?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn read_page(&self, page_name: &str, config: &Config) -> Result<String, Box<dyn std::error::Error>> {
+        let wiki = Wiki::new(self.root_dir.clone(), config.templates_dir.clone(), config);
+        let content = wiki.read_page(page_name, config)?;
+
+        Ok(content)
+    }
+}

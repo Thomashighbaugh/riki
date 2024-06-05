@@ -1,61 +1,66 @@
-// src/wiki/graph.rs
+// THIS IS THE FILE: src/wiki/graph.rs
 
-use std::process::Command;
-use std::path::PathBuf;
+use std::fs::File;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use crate::config::Config;
+use crate::wiki::page::Wiki;
+use crate::wiki::backlinks::Backlinks;
+use petgraph::graphmap::UnGraphMap;
+use petgraph::dot::{Dot, Config};
+use petgraph::prelude::*;
 
-pub struct Wiki {
-    // ... other fields
+pub struct Graph {
+    pub root_dir: PathBuf,
 }
 
-impl Wiki {
-    // ... other methods 
+impl Graph {
+    pub fn new(wiki: &Wiki) -> Graph {
+        Graph {
+            root_dir: wiki.root_dir.clone(),
+        }
+    }
 
-    pub fn generate_graph(&mut self, output_file: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
-        // 1. Build the backlinks map
-        for entry in walkdir::WalkDir::new(&self.root_dir)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_file())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "md"))
-        {
-            let page_name = entry.path().file_stem().unwrap().to_str().unwrap();
-            let _ = self.read_page(page_name, &config); // This will populate backlinks
+    pub fn generate_graph(&mut self, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+        let mut wiki = Wiki::new(self.root_dir.clone(), config.templates_dir.clone(), config);
+        let mut backlinks = Backlinks::new();
+        backlinks.update(&mut wiki, config);
+
+        let mut graph = UnGraphMap::new();
+
+        // Add nodes for each wiki page
+        for page_name in wiki.list_pages(config)? {
+            graph.add_node(page_name);
         }
 
-        // 2. Generate the DOT graph definition
-        let mut dot_graph = String::from("digraph wiki {\\n");
-        for (page, backlinks) in &self.backlinks {
+        // Add edges for backlinks
+        for (page, backlinks) in &backlinks.backlinks {
             for backlink in backlinks {
-                dot_graph.push_str(&format!("\t\\\"{}\\\" -> \\\"{}\\\";\\n", backlink, page));
+                graph.add_edge(page.to_string(), backlink.to_string(), ());
             }
         }
-        dot_graph.push_str("}\n");
 
-        // 3. Determine output file
+        // Generate DOT graph representation
+        let dot_graph = Dot::with_config(&graph, &[Config::NodeNoLabel, Config::EdgeNoLabel]);
+        let dot_graph = format!("{}", dot_graph);
+
+        // Use Graphviz to convert DOT to an image
+        let output_file = std::env::var("RIKI_GRAPH_OUTPUT");
+
         let output_path = output_file.unwrap_or_else(|| self.root_dir.join("wiki_graph.png"));
 
-        // 4. Execute the 'dot' command to generate the graph image
-        let output = Command::new("dot")
-            .arg("-Tpng")
-            .arg(format!("-o{}", output_path.display()))
-            .stdin(std::process::Stdio::piped())
-            .spawn()?;
-
-        // Write the DOT graph definition to the 'dot' command's stdin
-        if let Some(mut stdin) = output.stdin.take() {
-            stdin.write_all(dot_graph.as_bytes())?;
-        }
-
-        output.wait_with_output()?; // Wait for the 'dot' command to finish
-
-        println!("Wiki graph generated at: {}", output_path.display());
+        let mut cmd = std::process::Command::new("dot");
+        cmd.arg("-Tpng");
+        cmd.arg("-o");
+        cmd.arg(&output_path);
+        cmd.stdin(std::process::Stdio::piped());
+        let mut child = cmd.spawn()?;
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(dot_graph.as_bytes())?;
+        stdin.flush()?;
+        let _ = child.wait()?;
 
         Ok(())
     }
-
-    // ... (other methods)
 }
-
-// ... helper functions (create_or_load_index, get_schema_fields, get_snippet, sanitize_tag, etc.)

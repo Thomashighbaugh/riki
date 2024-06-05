@@ -1,107 +1,56 @@
-// src/cli/add_wiki.rs
+// THIS IS THE FILE: src/cli/add_wiki.rs
+
+use std::io::{self, Write};
 
 use crossterm::{
-    cursor,
+    event::{self, Event, KeyCode, KeyModifiers},
     style::{self, Color, Print, PrintStyledContent},
     terminal::{self, size, Clear, ClearType},
-    ExecutableCommand,
 };
-use std::error::Error;
-use std::io::{self, Write};
-use std::path::PathBuf;
 
-use crate::config::{save_config, Config};
+use crate::config::{install_default_templates, load_config, save_config, Config};
 
-pub fn print_add_wiki_menu(
+pub fn add_wiki(
     stdout: &mut io::Stdout,
     config: &mut Config,
-) -> Result<(), Box<dyn Error>> {
-    let (width, _) = terminal::size()?;
+) -> Result<(), Box<dyn std::error::Error>> {
+    terminal::Clear(ClearType::All)?;
 
-    loop {
-        // Clear the terminal
-        stdout.execute(Clear(ClearType::All))?;
+    // Ask for wiki name
+    writeln!(
+        stdout,
+        "{}",
+        style::style("Enter a name for your new wiki: ").bold().dim()
+    )?;
+    stdout.flush()?;
 
-        stdout.execute(cursor::MoveTo(0, 0))?;
+    let mut wiki_name = String::new();
+    io::stdin().read_line(&mut wiki_name)?;
+    wiki_name = wiki_name.trim().to_string();
 
-        println!("{}", style("Add Wiki").bold().with(Color::Cyan));
-        println!("");
+    // Ask for wiki path
+    writeln!(
+        stdout,
+        "{}",
+        style::style("Enter the path to your new wiki directory: ").bold().dim()
+    )?;
+    stdout.flush()?;
 
-        println!(
-            "{}",
-            style("Enter the path to the wiki directory:").with(Color::Green)
-        );
-        stdout.execute(cursor::MoveTo(0, 3))?;
-        stdout.execute(Clear(ClearType::CurrentLine))?;
-        print!("{}", style("> ").with(Color::DarkGrey));
-        stdout.flush()?;
+    let mut wiki_path_str = String::new();
+    io::stdin().read_line(&mut wiki_path_str)?;
+    let wiki_path_str = wiki_path_str.trim();
+    let wiki_path = PathBuf::from(wiki_path_str);
 
-        // Get user input
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
+    // Add the wiki to the configuration
+    config.wiki_paths.insert(wiki_name, wiki_path);
+    save_config(config)?;
 
-        let input = input.trim();
-        let path = PathBuf::from(input);
-
-        if !path.exists() {
-            println!(
-                "{}",
-                style(format!(
-                    "Error: The path '{}' does not exist.",
-                    path.display()
-                ))
-                .with(Color::Red)
-            );
-            stdout.execute(cursor::MoveTo(width as u16, 10))?;
-            stdout.execute(cursor::MoveTo(0, 5))?;
-        } else {
-            // Prompt for a wiki name
-            println!(
-                "{}",
-                style("Enter a name for this wiki:").with(Color::Green)
-            );
-            stdout.execute(cursor::MoveTo(0, 5))?;
-            stdout.execute(Clear(ClearType::CurrentLine))?;
-            print!("{}", style("> ").with(Color::DarkGrey));
-            stdout.flush()?;
-
-            // Get user input
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-
-            let wiki_name = input.trim();
-
-            if config.wiki_paths.contains_key(wiki_name) {
-                println!(
-                    "{}",
-                    style(format!(
-                        "Info: A wiki with the name '{}' already exists.",
-                        wiki_name
-                    ))
-                    .with(Color::Yellow)
-                );
-                stdout.execute(cursor::MoveTo(width as u16, 10))?;
-                stdout.execute(cursor::MoveTo(0, 7))?;
-            } else {
-                config.wiki_paths.insert(wiki_name.to_string(), path);
-                save_config(&config)?;
-                println!(
-                    "{}",
-                    style(format!(
-                        "Wiki path '{}' added as '{}' successfully!",
-                        path.display(),
-                        wiki_name
-                    ))
-                    .with(Color::Green)
-                );
-                stdout.execute(cursor::MoveTo(width as u16, 10))?;
-                stdout.execute(cursor::MoveTo(0, 9))?;
-                println!("Press Enter to return to main menu.");
-                io::stdin().read_line(&mut input)?;
-                break;
-            }
-        }
-    }
+    writeln!(
+        stdout,
+        "{}",
+        style::style(format!("Wiki '{}' added successfully.", wiki_name)).bold().green()
+    )?;
+    stdout.flush()?;
 
     Ok(())
 }

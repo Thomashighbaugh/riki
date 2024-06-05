@@ -1,94 +1,147 @@
-// src/wiki/history.rs
+// THIS IS THE FILE: src/wiki/history.rs
 
 use git2::{Repository, Status, Commit, ObjectType, IndexAddOption, Tree, Signature};
 use std::path::{Path, PathBuf};
+use chrono::NaiveDateTime;
+use std::fs::File;
+use std::io::Write;
 
-pub struct Wiki {
-    // ... other fields
+use crate::config::Config;
+use crate::wiki::page::Wiki;
+
+pub struct History {
+    pub repo: Repository,
 }
 
-impl Wiki {
-    // ... other methods 
-
-    // Function to initialize a Git repository in the wiki directory
-    fn init_git_repo(&self) -> Result<Repository, Box<dyn std::error::Error>> {
-        let repo = match Repository::open(&self.root_dir) {
-            Ok(repo) => repo, 
-            Err(_) => Repository::init(&self.root_dir)?, 
+impl History {
+    pub fn new(wiki: &Wiki) -> Result<History, git2::Error> {
+        let repo = match Repository::open(&wiki.root_dir) {
+            Ok(repo) => repo,
+            Err(_) => Repository::init(&wiki.root_dir)?,
         };
-        Ok(repo)
+        Ok(History { repo })
     }
 
-    // Function to stage and commit changes
-    fn commit_changes(&self, repo: &Repository, message: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let mut index = repo.index()?;
-        index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
+    pub fn add_page(&self, page_name: &str, content: &str, config: &Config) -> Result<(), git2::Error> {
+        let mut index = self.repo.index()?;
+        let page_path = wiki.get_page_path(page_name);
+
+        let mut file = File::create(page_path)?;
+        file.write_all(content.as_bytes())?;
+
+        index.add_path(Path::new(&page_path), IndexAddOption::DEFAULT)?;
         index.write()?;
 
-        let tree_id = index.write_tree()?; 
-        let tree = repo.find_tree(tree_id)?;
+        // Commit the changes
+        let oid = index.write_tree()?;
+        let sig = Signature::now("Riki", "riki@example.com")?;
 
-        // Find the last commit as the parent commit
-        let head = repo.head()?;
-        let parent = if head.is_branch() {
-            repo.find_commit(head.target().unwrap())?
-        } else {
-            return Err("No commit history found".into());
-        };
+        let commit_message = format!("Added page: {}", page_name);
+        let parent_commit = self.repo.head()?.peel(ObjectType::Commit)?.id();
+        self.repo.commit(
+            Some(&commit_message),
+            &sig,
+            &sig,
+            &parent_commit,
+            &oid,
+            &[],
+        )?;
 
-        let sig = repo.signature()?;
-        repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])?; 
         Ok(())
     }
 
-    // Function to view history of a page
-    pub fn view_page_history(&self, page_name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let repo = self.init_git_repo()?;
-        let page_path = self.get_page_path(page_name).strip_prefix(&self.root_dir)?;
-        let page_path_str = page_path.to_str().ok_or("Invalid page path")?; 
+    pub fn commit_changes(&self, page_name: &str, content: &str, config: &Config) -> Result<(), git2::Error> {
+        let mut index = self.repo.index()?;
+        let page_path = wiki.get_page_path(page_name);
 
-        let mut revwalk = repo.revwalk()?; 
-        revwalk.push_head()?; 
-        revwalk.set_sorting(git2::Sort::TIME)?;
+        let mut file = File::create(page_path)?;
+        file.write_all(content.as_bytes())?;
 
-        println!("History for '{}':", page_name);
-        for commit_id in revwalk {
-            let commit_id = commit_id?;
-            let commit = repo.find_commit(commit_id)?;
-            if commit.tree()?.get_path(page_path)?.is_some() {
-                println!("- {}: {}", commit_id, commit.message().unwrap_or("")); 
-            }
-        }
+        index.add_path(Path::new(&page_path), IndexAddOption::DEFAULT)?;
+        index.write()?;
+
+        // Commit the changes
+        let oid = index.write_tree()?;
+        let sig = Signature::now("Riki", "riki@example.com")?;
+
+        let commit_message = format!("Updated page: {}", page_name);
+        let parent_commit = self.repo.head()?.peel(ObjectType::Commit)?.id();
+        self.repo.commit(
+            Some(&commit_message),
+            &sig,
+            &sig,
+            &parent_commit,
+            &oid,
+            &[],
+        )?;
+
         Ok(())
     }
 
-    // Function to revert a page to a specific commit
-    pub fn revert_page(&self, page_name: &str, commit_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let repo = self.init_git_repo()?;
-        let obj = repo.revparse_single(commit_id)?; 
+    pub fn get_page_history(&self, page_name: &str, config: &Config) -> Result<Vec<String>, git2::Error> {
+        let page_path = wiki.get_page_path(page_name).strip_prefix(&wiki.root_dir)?;
 
-        if let Some(commit) = obj.as_commit() {
-            let page_path = self.get_page_path(page_name).strip_prefix(&self.root_dir)?;
-            let page_path_str = page_path.to_str().ok_or("Invalid page path")?; 
+        let mut history = Vec::new();
 
-            let tree = commit.tree()?; 
-            let blob = tree.get_path(page_path)?; 
+        let mut revwalk = self.repo.revwalk()?;
+        revwalk.push_head()?;
+        let commits = revwalk.filter_map(|oid| {
+            if let Ok(commit) = self.repo.find_commit(oid) {
+                let commit_time = commit.time();
+                let date = NaiveDateTime::from_timestamp(commit_time.seconds(), commit_time.nanos());
 
-            if let Some(blob) = blob {
-                let content = blob.content()?;
-                let mut file = File::create(self.get_page_path(page_name))?;
-                file.write_all(content)?; 
-                println!("Page '{}' reverted to commit '{}'.", page_name, commit_id);
-                Ok(())
+                if commit.tree()?.get_path(page_path)?.is_some() {
+                    Some(format!("{} - {}", date.format("%Y-%m-%d %H:%M:%S"), commit.summary()))
+                } else {
+                    None
+                }
             } else {
-                Err(format!("Page '{}' not found in commit '{}'.", page_name, commit_id).into())
+                None
             }
+        }).collect();
+
+        Ok(commits)
+    }
+
+    pub fn get_last_modified_date(&self, page_name: &str, config: &Config) -> Result<NaiveDateTime, git2::Error> {
+        let page_path = wiki.get_page_path(page_name).strip_prefix(&wiki.root_dir)?;
+
+        let mut revwalk = self.repo.revwalk()?;
+        revwalk.push_head()?;
+        let commits = revwalk.filter_map(|oid| {
+            if let Ok(commit) = self.repo.find_commit(oid) {
+                let commit_time = commit.time();
+                let date = NaiveDateTime::from_timestamp(commit_time.seconds(), commit_time.nanos());
+
+                if commit.tree()?.get_path(page_path)?.is_some() {
+                    Some(date)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).collect();
+
+        if let Some(date) = commits.first() {
+            Ok(date.clone())
         } else {
-            Err(format!("Invalid commit ID: '{}'", commit_id).into())
+            Err(git2::Error::from_str("Page not found in Git history"))
         }
     }
 
-    // ... other methods
-}
+    pub fn revert_page(&self, page_name: &str, commit_hash: &str, config: &Config) -> Result<(), git2::Error> {
+        let page_path = wiki.get_page_path(page_name).strip_prefix(&wiki.root_dir)?;
 
-// ... helper functions (create_or_load_index, get_schema_fields, get_snippet, sanitize_tag, etc.)
+        let commit = self.repo.find_commit(git2::Oid::from_str(commit_hash)?)?;
+
+        let mut checkout_builder = self.repo.checkout_builder()?;
+        checkout_builder.force();
+        checkout_builder.path(page_path)?;
+        checkout_builder.target(commit.id())?;
+        checkout_builder.detach();
+        checkout_builder.finish()?;
+
+        Ok(())
+    }
+}

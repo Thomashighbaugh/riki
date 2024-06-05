@@ -1,79 +1,107 @@
-// src/wiki/backlinks.rs
+// THIS IS THE FILE: src/wiki/backlinks.rs
 
 use std::collections::HashMap;
-use regex::Regex;
-use crate::config::Config;
+use std::fs;
+use std::path::{Path, PathBuf};
 
-pub struct Wiki {
-    // ... other fields
+use crate::config::Config;
+use crate::wiki::page::Wiki;
+
+pub struct Backlinks {
+    pub backlinks: HashMap<String, Vec<String>>,
 }
 
-impl Wiki {
-    // ... other methods
+impl Backlinks {
+    pub fn new() -> Backlinks {
+        Backlinks {
+            backlinks: HashMap::new(),
+        }
+    }
 
-    // Update process_wikilinks to populate backlinks
-    fn process_wikilinks(&mut self, content: &str, config: &Config, current_page: &str) -> String {
-        let re = Regex::new(r#"\\[\\[(?:([^:]+):)?([^\\[\\]]+)\\]\\]"#).unwrap();
+    pub fn update(&mut self, wiki: &mut Wiki, config: &Config) {
+        self.backlinks.clear();
 
-        re.replace_all(content, |caps: &Captures| {
-            let wiki_name = caps.get(1).map(|m| m.as_str());
-            let linked_page = caps.get(2).unwrap().as_str();
+        // Iterate through all wiki pages
+        for entry in walkdir::WalkDir::new(wiki.root_dir.clone()) {
+            if let Ok(entry) = entry {
+                // Only process Markdown files
+                if entry.file_type().is_file()
+                    && entry.path().extension().unwrap_or_default() == "md"
+                {
+                    let page_name = entry
+                        .path()
+                        .strip_prefix(&wiki.root_dir)
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .replace(".md", "")
+                        .to_string();
 
-            // Track backlinks
-            if let Some(wiki_name) = wiki_name {
-                // Inter-wiki link (currently no backlinks for inter-wiki)
-            } else {
-                // Normal wikilink (within the current wiki)
-                self.backlinks.entry(linked_page.to_string())
-                    .or_insert_with(Vec::new)
-                    .push(current_page.to_string());
+                    // Read the page content
+                    let contents =
+                        fs::read_to_string(entry.path()).expect("Failed to read file content");
+
+                    // Extract linked pages
+                    let linked_pages =
+                        Self::extract_linked_pages(&contents, &wiki.root_dir, config);
+
+                    // Update backlinks for linked pages
+                    for linked_page in linked_pages {
+                        self.backlinks
+                            .entry(linked_page.to_string())
+                            .or_insert_with(Vec::new)
+                            .push(page_name.clone());
+                    }
+                }
             }
+        }
+    }
 
-            // Construct the link based on whether it's an inter-wiki link
-            if let Some(wiki_name) = wiki_name {
-                // Inter-wiki link
-                if let Some(wiki_path) = config.wiki_paths.get(wiki_name) {
-                    let linked_page_path = wiki_path.join(format!("{}.md", linked_page));
-                    let link_text = if linked_page_path.exists() {
-                        format!("[{}]({})", linked_page, linked_page_path.display())
-                    } else {
-                        format!("[{} (not created yet)]({})", linked_page, linked_page_path.display())
-                    };
-                    link_text
-                } else {
-                    format!("[[{}:{} (wiki not found)]]", wiki_name, linked_page)
+    /// Extracts linked pages from a Markdown page
+    fn extract_linked_pages(
+        contents: &str,
+        root_dir: &PathBuf,
+        config: &Config,
+    ) -> Vec<String> {
+        let mut linked_pages = Vec::new();
+
+        for capture in regex::Regex::new(r"\[\[(.*?)\]\]").unwrap().captures_iter(contents) {
+            let linked_page = capture[1].to_string();
+
+            // Check if it's a valid internal link or a cross-wiki link
+            if linked_page.contains(":") {
+                let parts: Vec<&str> = linked_page.split(":").collect();
+                if parts.len() == 2 {
+                    let wiki_name = parts[0].trim();
+                    let page_name = parts[1].trim();
+
+                    if let Some(wiki_path) = config.wiki_paths.get(wiki_name) {
+                        linked_pages.push(wiki_path.join(format!("{}.md", page_name)).to_str().unwrap().to_string());
+                    }
                 }
             } else {
-                // Normal wikilink (within the current wiki)
-                let linked_page_path = self.get_page_path(linked_page);
-                let link_text = if linked_page_path.exists() {
-                    format!("[{}]({})", linked_page, linked_page_path.display())
-                } else {
-                    format!("[{} (not created yet)]({})", linked_page, linked_page_path.display())
-                };
-                link_text
+                // Internal link within the wiki
+                linked_pages.push(
+                    root_dir
+                        .join(format!("{}.md", linked_page))
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
+                );
             }
-        }).to_string()
+        }
+
+        linked_pages
     }
 
-    pub fn read_page(&mut self, page_name: &str, config: &Config) -> Result<String, Box<dyn std::error::Error>> {
-        // ... (Get page path and content - remains the same) 
-
-        // Reset backlinks for the current page
-        self.backlinks.remove(page_name);
-
-        // Process wikilinks and update backlinks
-        let processed_content = self.process_wikilinks(&content, config, page_name);
-
-        Ok(processed_content)
-    }
-
-    // Add a new method to get backlinks for a page
     pub fn get_backlinks(&self, page_name: &str) -> Vec<String> {
-        self.backlinks.get(page_name).cloned().unwrap_or_default()
+        self.backlinks
+            .get(page_name)
+            .cloned()
+            .unwrap_or_default()
     }
 
-    // ... (other methods)
+    pub fn remove_backlinks(&mut self, page_name: &str) {
+        self.backlinks.remove(page_name);
+    }
 }
-
-// ... (Helper functions: create_or_load_index, get_schema_fields, get_snippet, sanitize_tag)

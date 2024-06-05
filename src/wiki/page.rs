@@ -1,187 +1,239 @@
-// src/wiki/page.rs
+// THIS IS THE FILE: src/wiki/page.rs
 
-use std::path::{PathBuf, Path};
-use std::fs::{File, create_dir_all, remove_file, OpenOptions};
-use std::io::{Write, Read, Error, ErrorKind};
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use chrono::NaiveDateTime;
 
 use crate::config::Config;
+use crate::wiki::{
+    backlinks::Backlinks,
+    history::History,
+    search::Wiki as SearchWiki,
+    tags::Tags,
+};
+use crate::wiki::utils::get_snippet;
 
 pub struct Wiki {
     pub root_dir: PathBuf,
     pub templates_dir: PathBuf,
-    pub index: Index,
-    pub backlinks: HashMap<String, Vec<String>>,
-    pub tag_cache: HashMap<PathBuf, (Vec<String>, std::time::SystemTime)>,
 }
 
 impl Wiki {
-    // ... (Other methods)
+    pub fn new(root_dir: PathBuf, templates_dir: PathBuf, _config: &Config) -> Wiki {
+        Wiki {
+            root_dir,
+            templates_dir,
+        }
+    }
 
-    pub fn create_page(&self, page_name: &str, content: &str, tags: Option<Vec<String>>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn get_page_path(&self, page_name: &str) -> PathBuf {
+        self.root_dir.join(format!("{}.md", page_name))
+    }
+
+    pub fn read_page(
+        &self,
+        page_name: &str,
+        _config: &Config,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let page_path = self.get_page_path(page_name);
 
         if page_path.exists() {
-            return Err(format!("Error: A page with the name '{}' already exists in this wiki. Choose a different name.", page_name).into());
+            let contents = std::fs::read_to_string(page_path)?;
+            Ok(contents)
+        } else {
+            Err(format!("Page not found: {}", page_name).into())
         }
+    }
 
-        if let Some(parent_dir) = page_path.parent() {
-            if let Err(err) = create_dir_all(parent_dir) {
-                return Err(format!("Error: Could not create directories for page '{}': {}", page_name, err).into());
-            }
+    pub fn create_page(
+        &mut self,
+        page_name: &str,
+        contents: &str,
+        template: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let page_path = self.get_page_path(page_name);
+        let mut file = File::create(page_path)?;
+
+        if let Some(template) = template {
+            // Use a template to create the new page
+            let template_content = self.read_page(template, &Config::default())?;
+            file.write_all(template_content.as_bytes())?;
+        } else {
+            // Create a blank page
+            file.write_all(contents.as_bytes())?;
         }
-
-        // Handle errors during file creation or writing
-        let mut file = File::create(page_path).map_err(|err| {
-            Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Error: Could not create page file '{}': {}",
-                    page_path.display(),
-                    err
-                )
-            )
-        })?;
-
-        // Write tags as YAML headmatter
-        if let Some(tags) = tags {
-            writeln!(file, "---\n")?;
-            writeln!(file, "tags:\n")?;
-            for tag in tags {
-                writeln!(file, "  - {}", tag)?;
-            }
-            writeln!(file, "---\n")?;
-        }
-
-        writeln!(file, "{}", content)?;
 
         Ok(())
     }
 
-    pub fn read_page(&mut self, page_name: &str, config: &Config) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn delete_page(&mut self, page_name: &str) -> Result<(), Box<dyn std::error::Error>> {
         let page_path = self.get_page_path(page_name);
-
-        if !page_path.exists() {
-            return Err(format!("Error: Page '{}' not found in this wiki.", page_name).into());
+        if page_path.exists() {
+            fs::remove_file(page_path)?;
+            Ok(())
+        } else {
+            Err(format!("Page not found: {}", page_name).into())
         }
-
-        // Handle errors during file opening
-        let mut file = File::open(page_path).map_err(|err| {
-            Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Error: Could not open page file '{}': {}",
-                    page_path.display(),
-                    err
-                )
-            )
-        })?;
-        let mut contents = String::new();
-
-        // Handle errors during file reading
-        file.read_to_string(&mut contents).map_err(|err| {
-            Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Error: Could not read content from page file '{}': {}",
-                    page_path.display(),
-                    err
-                )
-            )
-        })?;
-
-        // Reset backlinks for the current page
-        self.backlinks.remove(page_name);
-
-        // Process wikilinks and update backlinks
-        let processed_content = self.process_wikilinks(&contents, config, page_name);
-
-        Ok(processed_content)
     }
 
-    pub fn update_page(&self, page_name: &str, new_content: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let page_path = self.get_page_path(page_name);
+    pub fn list_pages(&self, _config: &Config) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let mut pages = Vec::new();
 
-        if !page_path.exists() {
-            return Err(format!("Error: Page '{}' not found.", page_name).into());
-        }
+        // Iterate through all Markdown files in the wiki directory
+        for entry in walkdir::WalkDir::new(&self.root_dir) {
+            if let Ok(entry) = entry {
+                // Only process Markdown files
+                if entry.file_type().is_file()
+                    && entry.path().extension().unwrap_or_default() == "md"
+                {
+                    let page_name = entry
+                        .path()
+                        .strip_prefix(&self.root_dir)
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .replace(".md", "")
+                        .to_string();
 
-        let mut file = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(page_path)?;
-
-        write!(file, "{}", new_content)?;
-        Ok(())
-    }
-
-    pub fn delete_page(&self, page_name: &str) -> Result<bool, Box<dyn std::error::Error>> {
-        let page_path = self.get_page_path(page_name);
-
-        if !page_path.exists() {
-            println!("Info: Page '{}' does not exist.", page_name);
-            return Ok(false); // Indicate that the page was not deleted because it didn't exist.
-        }
-
-        remove_file(page_path)?;
-        Ok(true)
-    }
-
-    pub fn create_page_from_template(&self, page_name: &str, template_name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let template_path = self.templates_dir.join(format!("{}.md", template_name));
-
-        if !template_path.exists() {
-            return Err(format!("Error: Template '{}' not found.", template_name).into());
-        }
-
-        let template_content = std::fs::read_to_string(template_path)?;
-        let page_content = template_content.replace("{{page_name}}", page_name);
-
-        self.create_page(page_name, &page_content, None)
-    }
-
-    pub fn create_page_interactive(&self, page_name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Enter the initial content for '{}' (leave empty to create a blank page):", page_name);
-
-        let mut content = String::new();
-        std::io::stdin().read_line(&mut content)?;
-        let mut tags = Vec::new();
-        
-        // Ask the user if they want to add tags
-        println!("Do you want to add tags? (yes/no)");
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-    
-        if input.trim().to_lowercase() == "yes" {
-            loop {
-                println!("Enter a tag (or press Enter to finish):");
-                let mut tag_input = String::new();
-                std::io::stdin().read_line(&mut tag_input)?;
-    
-                let tag = tag_input.trim();
-                if tag.is_empty() {
-                    break;
+                    pages.push(page_name);
                 }
-                tags.push(tag.to_string());
             }
         }
-        self.create_page(page_name, &content.trim(), Some(tags))
+
+        Ok(pages)
     }
 
-    fn get_page_path(&self, page_name: &str) -> PathBuf {
-        let mut page_path = self.root_dir.clone();
-        let sanitized_name = page_name
-            .chars()
-            .map(|c| match c {
-                'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' => c,
-                _ => '_',
-            })
-            .collect::<String>();
-
-        page_path.push(format!("{}.md", sanitized_name));
-        page_path
+    pub fn get_backlinks(
+        &self,
+        page_name: &str,
+        config: &Config,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let mut backlinks = Backlinks::new();
+        backlinks.update(self, config);
+        Ok(backlinks.get_backlinks(page_name))
     }
 
-    // ... (Other methods for search, backlinks, tags, history, export, import, etc.) 
+    pub fn add_tag(
+        &mut self,
+        page_name: &str,
+        tag_name: &str,
+        config: &Config,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut tags = Tags::new();
+        tags.update(self, config);
+        tags.add_tag(page_name, tag_name);
+        tags.save(self, config)?;
+
+        Ok(())
+    }
+
+    pub fn remove_tag(
+        &mut self,
+        page_name: &str,
+        tag_name: &str,
+        config: &Config,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut tags = Tags::new();
+        tags.update(self, config);
+        tags.remove_tag(page_name, tag_name);
+        tags.save(self, config)?;
+
+        Ok(())
+    }
+
+    pub fn list_tags(&self, config: &Config) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let mut tags = Tags::new();
+        tags.update(self, config);
+        Ok(tags.list_tags())
+    }
+
+    pub fn list_tags_for_page(
+        &self,
+        page_name: &str,
+        config: &Config,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let mut tags = Tags::new();
+        tags.update(self, config);
+        Ok(tags.list_tags_for_page(page_name))
+    }
+
+    pub fn list_pages_with_tag(
+        &self,
+        tag_name: &str,
+        config: &Config,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let mut tags = Tags::new();
+        tags.update(self, config);
+        Ok(tags.list_pages_with_tag(tag_name))
+    }
+
+    pub fn get_page_history(
+        &self,
+        page_name: &str,
+        config: &Config,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let history = History::new(self)?;
+        Ok(history.get_page_history(page_name, config)?)
+    }
+
+    pub fn get_last_modified_date(
+        &self,
+        page_name: &str,
+        config: &Config,
+    ) -> Result<NaiveDateTime, Box<dyn std::error::Error>> {
+        let history = History::new(self)?;
+        Ok(history.get_last_modified_date(page_name, config)?)
+    }
+
+    pub fn revert_page(
+        &self,
+        page_name: &str,
+        commit_hash: &str,
+        config: &Config,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let history = History::new(self)?;
+        history.revert_page(page_name, commit_hash, config)?;
+        Ok(())
+    }
+
+    pub fn delete_page(&mut self, page_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let page_path = self.get_page_path(page_name);
+        if page_path.exists() {
+            fs::remove_file(page_path)?;
+            Ok(())
+        } else {
+            Err(format!("Page not found: {}", page_name).into())
+        }
+    }
+
+    pub fn search(
+        &self,
+        query: &str,
+        tags: &[&str],
+        directories: &[&str],
+        date_range: &[&str],
+        snippet_length: usize,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
+        let mut search_wiki = SearchWiki::new(self.root_dir.clone(), self.templates_dir.clone(), &Config::default());
+        let search_results = search_wiki.search(query, tags, directories, date_range)?;
+
+        let mut results = Vec::new();
+        for result in search_results {
+            let snippet = get_snippet(&result.content, snippet_length)?;
+            results.push(SearchResult {
+                page_name: result.page_name,
+                snippet,
+            });
+        }
+
+        Ok(results)
+    }
 }
 
-// ... (Helper functions: create_or_load_index, get_schema_fields, get_snippet, sanitize_tag)
+#[derive(Debug)]
+pub struct SearchResult {
+    pub page_name: String,
+    pub snippet: String,
+}

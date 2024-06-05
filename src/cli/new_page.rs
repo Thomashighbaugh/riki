@@ -1,165 +1,106 @@
-// src/cli/new_page.rs
+// THIS IS THE FILE: src/cli/new_page.rs
+
+use std::io::{self, Write};
 
 use crossterm::{
-    cursor,
+    event::{self, Event, KeyCode, KeyModifiers},
     style::{self, Color, Print, PrintStyledContent},
     terminal::{self, size, Clear, ClearType},
-    ExecutableCommand,
 };
-use std::error::Error;
-use std::io::{self, Write};
 use std::path::PathBuf;
 
-use crate::config::Config;
+use crate::config::{install_default_templates, load_config, save_config, Config};
 use crate::wiki::Wiki;
 
-pub fn print_new_page_menu(
+pub fn new_page(
     stdout: &mut io::Stdout,
     config: &mut Config,
-) -> Result<(), Box<dyn Error>> {
-    let (width, _) = terminal::size()?;
+) -> Result<(), Box<dyn std::error::Error>> {
+    terminal::Clear(ClearType::All)?;
 
-    loop {
-        // Clear the terminal
-        stdout.execute(Clear(ClearType::All))?;
+    // Ask for page name
+    writeln!(
+        stdout,
+        "{}",
+        style::style("Enter a name for your new page: ").bold().dim()
+    )?;
+    stdout.flush()?;
 
-        stdout.execute(cursor::MoveTo(0, 0))?;
+    let mut page_name = String::new();
+    io::stdin().read_line(&mut page_name)?;
+    page_name = page_name.trim().to_string();
 
-        println!("{}", style("New Page").bold().with(Color::Cyan));
-        println!("");
-
-        // Print the list of wikis
-        println!(
+    // Ask for template name
+    let templates = Templates::new(config).list_templates()?;
+    if templates.is_empty() {
+        writeln!(
+            stdout,
             "{}",
-            style("Select a wiki to create a new page in:").with(Color::Green)
-        );
-        stdout.execute(cursor::MoveTo(0, 3))?;
-        for (i, (wiki_name, _)) in config.wiki_paths.iter().enumerate() {
-            println!(
-                "{}",
-                style(format!("  {}. {}", i + 1, wiki_name)).with(Color::Blue)
-            );
-        }
-        stdout.execute(cursor::MoveTo(0, 3 + config.wiki_paths.len() as u16 + 1))?;
+            style::style("No templates available. Creating a blank page.").bold()
+        )?;
+        stdout.flush()?;
+    } else {
+        writeln!(
+            stdout,
+            "{}",
+            style::style("Choose a template (enter 'q' to create a blank page): ").bold().dim()
+        )?;
+        stdout.flush()?;
 
-        // Get user input
+        for (i, template) in templates.iter().enumerate() {
+            writeln!(
+                stdout,
+                "{}",
+                style::style(format!("{}: {}", i + 1, template)).dim()
+            )?;
+            stdout.flush()?;
+        }
+
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
+        let input = input.trim();
 
-        let choice: usize = input
-            .trim()
-            .parse()
-            .map_err(|_| "Invalid choice. Please enter a number.")?;
-
-        if choice > 0 && choice <= config.wiki_paths.len() {
-            // Get the wiki path
-            let wiki_path = config.wiki_paths.values().nth(choice - 1).unwrap().clone();
-
-            // Prompt for the page name
-            println!(
-                "{}",
-                style("Enter a name for the new page:").with(Color::Green)
-            );
-            stdout.execute(cursor::MoveTo(0, 5 + config.wiki_paths.len() as u16 + 1))?;
-            stdout.execute(Clear(ClearType::CurrentLine))?;
-            print!("{}", style("> ").with(Color::DarkGrey));
-            stdout.flush()?;
-
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-
-            let page_name = input.trim();
-
-            // Prompt for template selection (optional)
-            println!("{}", style("Use a template? (yes/no):").with(Color::Green));
-            stdout.execute(cursor::MoveTo(0, 7 + config.wiki_paths.len() as u16 + 1))?;
-            stdout.execute(Clear(ClearType::CurrentLine))?;
-            print!("{}", style("> ").with(Color::DarkGrey));
-            stdout.flush()?;
-
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-
-            let use_template = input.trim().to_lowercase() == "yes";
-
-            let template_name = if use_template {
-                // Print the list of templates
-                println!("{}", style("Select a template:").with(Color::Green));
-                stdout.execute(cursor::MoveTo(0, 9 + config.wiki_paths.len() as u16 + 1))?;
-                let mut templates = Vec::new();
-                for (i, (template_name, _)) in config.wiki_paths.iter().enumerate() {
-                    templates.push(template_name.to_string());
-                    println!(
-                        "{}",
-                        style(format!("  {}. {}", i + 1, template_name)).with(Color::Blue)
-                    );
-                }
-                stdout.execute(cursor::MoveTo(
-                    0,
-                    9 + config.wiki_paths.len() as u16 + 1 + templates.len() as u16 + 1,
-                ))?;
-
-                // Get user input
-                let mut input = String::new();
-                io::stdin().read_line(&mut input)?;
-
-                let choice: usize = input
-                    .trim()
-                    .parse()
-                    .map_err(|_| "Invalid choice. Please enter a number.")?;
-
-                if choice > 0 && choice <= templates.len() {
-                    Some(templates[choice - 1].clone())
-                } else {
-                    None
-                }
+        let template = if input == "q" {
+            None
+        } else if let Ok(index) = input.parse::<usize>() {
+            if index > 0 && index <= templates.len() {
+                Some(templates[index - 1].as_str())
             } else {
-                None
-            };
-
-            // Create the page
-            let wiki = Wiki::new(wiki_path.clone(), config.templates_dir.clone(), &config)?;
-            match template_name {
-                Some(template_name) => {
-                    wiki.create_page_from_template(page_name, &template_name)?;
-                    println!(
-                        "Page '{}' created successfully in '{}' using template '{}'!",
-                        page_name,
-                        wiki_path.display(),
-                        template_name
-                    );
-                }
-                None => {
-                    wiki.create_page_interactive(page_name)?;
-                    println!(
-                        "Page '{}' created successfully in '{}'!",
-                        page_name,
-                        wiki_path.display()
-                    );
-                }
+                writeln!(
+                    stdout,
+                    "{}",
+                    style::style("Invalid template choice.").bold().red()
+                )?;
+                stdout.flush()?;
+                return Ok(());
             }
-            if let Err(err) = wiki.index_page(page_name.to_string()) {
-                eprintln!(
-                    "Warning: Failed to index page '{}'. Error: {}",
-                    page_name, err
-                );
-            }
-            stdout.execute(cursor::MoveTo(width as u16, 10))?;
-            stdout.execute(cursor::MoveTo(
-                0,
-                12 + config.wiki_paths.len() as u16 + 1 + templates.len() as u16 + 1,
-            ))?;
-            println!("Press Enter to return to main menu.");
-            io::stdin().read_line(&mut input)?;
-            break;
         } else {
-            println!(
+            writeln!(
+                stdout,
                 "{}",
-                style("Invalid choice. Please enter a number from the list.").with(Color::Yellow)
-            );
-            stdout.execute(cursor::MoveTo(width as u16, 10))?;
-            stdout.execute(cursor::MoveTo(0, 5 + config.wiki_paths.len() as u16 + 1))?;
+                style::style("Invalid input.").bold().red()
+            )?;
+            stdout.flush()?;
+            return Ok(());
+        };
+
+        // Create the new page
+        let wiki_path = config
+            .wiki_paths
+            .get("main")
+            .unwrap()
+            .clone();
+        let wiki = Wiki::new(wiki_path, config.templates_dir.clone(), config);
+        let mut wiki = wiki;
+        wiki.create_page(&page_name, "", template)?;
+
+        // Open the page in the default editor
+        if let Some(editor) = &config.editor {
+            let mut cmd = std::process::Command::new(editor);
+            cmd.arg(wiki.get_page_path(&page_name));
+            let _ = cmd.spawn();
         }
     }
+
     Ok(())
 }

@@ -1,64 +1,34 @@
-// src/cli/templates.rs
+// THIS IS THE FILE: src/cli/templates.rs
 
-use crossterm::{
-    cursor,
-    style::{self, Color, Print, PrintStyledContent},
-    terminal::{self, size, Clear, ClearType},
-    ExecutableCommand,
-};
-use std::error::Error;
 use std::io::{self, Write};
 
-use crate::config::Config;
+use crossterm::{
+    event::{self, Event, KeyCode, KeyModifiers},
+    style::{self, Color, Print, PrintStyledContent},
+    terminal::{self, size, Clear, ClearType},
+};
+
+use crate::config::{install_default_templates, load_config, save_config, Config};
 use crate::wiki::Wiki;
 
-pub fn print_templates_menu(
+pub fn templates(
     stdout: &mut io::Stdout,
     config: &mut Config,
-) -> Result<(), Box<dyn Error>> {
-    let (width, _) = terminal::size()?;
+) -> Result<(), Box<dyn std::error::Error>> {
+    terminal::Clear(ClearType::All)?;
 
-    loop {
-        // Clear the terminal
-        stdout.execute(Clear(ClearType::All))?;
-        stdout.execute(cursor::MoveTo(0, 0))?;
+    let templates = Templates::new(config).list_templates()?;
 
-        println!("{}", style("Templates").bold().with(Color::Cyan));
-        println!("");
+    writeln!(
+        stdout,
+        "{}",
+        style::style("Available Templates:").bold().green()
+    )?;
+    stdout.flush()?;
 
-        println!("{}", style("Select an option:").with(Color::Green));
-        println!("  1. List Templates");
-        stdout.execute(cursor::MoveTo(0, 4))?;
-        println!("  q. Back to main menu");
-        stdout.execute(cursor::MoveTo(width as u16, 10))?;
-
-        // Get user input
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-
-        match input.trim().chars().next() {
-            Some('1') => {
-                // List Templates
-                let wiki = Wiki::new(PathBuf::new(), config.templates_dir.clone(), &config)?;
-                wiki.list_templates()?;
-                stdout.execute(cursor::MoveTo(width as u16, 10))?;
-                stdout.execute(cursor::MoveTo(0, 6))?;
-                println!("Press Enter to return to Templates menu.");
-                io::stdin().read_line(&mut input)?;
-            }
-            Some('q') => {
-                // Return to main menu
-                break;
-            }
-            _ => {
-                println!(
-                    "{}",
-                    style("Invalid choice. Please enter 1 or q.").with(Color::Yellow)
-                );
-                stdout.execute(cursor::MoveTo(width as u16, 10))?;
-                stdout.execute(cursor::MoveTo(0, 6))?;
-            }
-        }
+    for template in templates {
+        writeln!(stdout, "{}", style::style(template).dim())?;
+        stdout.flush()?;
     }
 
     Ok(())

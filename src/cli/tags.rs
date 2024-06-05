@@ -1,226 +1,214 @@
-// src/cli/tags.rs
+// THIS IS THE FILE: src/cli/tags.rs
+
+use std::io::{self, Write};
 
 use crossterm::{
-    cursor,
+    event::{self, Event, KeyCode, KeyModifiers},
     style::{self, Color, Print, PrintStyledContent},
     terminal::{self, size, Clear, ClearType},
-    ExecutableCommand,
 };
-use std::error::Error;
-use std::io::{self, Write};
 use std::path::PathBuf;
 
-use crate::config::Config;
+use crate::config::{install_default_templates, load_config, save_config, Config};
 use crate::wiki::Wiki;
 
-pub fn print_tags_menu(stdout: &mut io::Stdout, config: &mut Config) -> Result<(), Box<dyn Error>> {
-    let (width, _) = terminal::size()?;
+pub fn tags(
+    stdout: &mut io::Stdout,
+    config: &mut Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    terminal::Clear(ClearType::All)?;
 
-    loop {
-        // Clear the terminal
-        stdout.execute(Clear(ClearType::All))?;
-        stdout.execute(cursor::MoveTo(0, 0))?;
+    let wiki_path = config
+        .wiki_paths
+        .get("main")
+        .unwrap()
+        .clone();
+    let wiki = Wiki::new(wiki_path, config.templates_dir.clone(), config);
+    let tags = wiki.list_tags(config)?;
 
-        println!("{}", style("Tags").bold().with(Color::Cyan));
-        println!("");
+    writeln!(
+        stdout,
+        "{}",
+        style::style("Tags in the current wiki:").bold().green()
+    )?;
+    stdout.flush()?;
 
-        println!("{}", style("Select an option:").with(Color::Green));
-        println!("  1. List All Tags");
-        println!("  2. Modify Tags on a Page");
-        stdout.execute(cursor::MoveTo(0, 5))?;
-        println!("  q. Back to main menu");
-        stdout.execute(cursor::MoveTo(width as u16, 10))?;
-
-        // Get user input
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-
-        match input.trim().chars().next() {
-            Some('1') => {
-                // List Tags
-                let mut wiki = Wiki::new(PathBuf::new(), config.templates_dir.clone(), &config)?;
-                wiki.list_all_tags()?;
-                stdout.execute(cursor::MoveTo(width as u16, 10))?;
-                stdout.execute(cursor::MoveTo(0, 7))?;
-                println!("Press Enter to return to Tags menu.");
-                io::stdin().read_line(&mut input)?;
-            }
-            Some('2') => {
-                // Modify Tags
-                print_modify_tags_menu(stdout, config)?;
-            }
-            Some('q') => {
-                // Return to main menu
-                break;
-            }
-            _ => {
-                println!(
-                    "{}",
-                    style("Invalid choice. Please enter 1, 2, or q.").with(Color::Yellow)
-                );
-                stdout.execute(cursor::MoveTo(width as u16, 10))?;
-                stdout.execute(cursor::MoveTo(0, 7))?;
-            }
-        }
+    for tag in tags {
+        writeln!(stdout, "{}", style::style(tag).dim())?;
+        stdout.flush()?;
     }
 
     Ok(())
 }
 
-fn print_modify_tags_menu(
+pub fn add_tag(
     stdout: &mut io::Stdout,
     config: &mut Config,
-) -> Result<(), Box<dyn Error>> {
-    let (width, _) = terminal::size()?;
+) -> Result<(), Box<dyn std::error::Error>> {
+    terminal::Clear(ClearType::All)?;
 
-    loop {
-        // Clear the terminal
-        stdout.execute(Clear(ClearType::All))?;
-        stdout.execute(cursor::MoveTo(0, 0))?;
+    // Ask for page name
+    writeln!(
+        stdout,
+        "{}",
+        style::style("Enter the name of the page to add a tag to: ").bold().dim()
+    )?;
+    stdout.flush()?;
 
-        println!("{}", style("Modify Tags").bold().with(Color::Cyan));
-        println!("");
+    let mut page_name = String::new();
+    io::stdin().read_line(&mut page_name)?;
+    page_name = page_name.trim().to_string();
 
-        // Print the list of wikis
-        println!(
-            "{}",
-            style("Select a wiki to modify tags for:").with(Color::Green)
-        );
-        stdout.execute(cursor::MoveTo(0, 3))?;
-        for (i, (wiki_name, _)) in config.wiki_paths.iter().enumerate() {
-            println!(
-                "{}",
-                style(format!("  {}. {}", i + 1, wiki_name)).with(Color::Blue)
-            );
-        }
-        stdout.execute(cursor::MoveTo(0, 3 + config.wiki_paths.len() as u16 + 1))?;
+    // Ask for tag name
+    writeln!(stdout, "{}", style::style("Enter the tag name: ").bold().dim())?;
+    stdout.flush()?;
 
-        // Get user input
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
+    let mut tag_name = String::new();
+    io::stdin().read_line(&mut tag_name)?;
+    tag_name = tag_name.trim().to_string();
 
-        let choice: usize = input
-            .trim()
-            .parse()
-            .map_err(|_| "Invalid choice. Please enter a number.")?;
+    let wiki_path = config
+        .wiki_paths
+        .get("main")
+        .unwrap()
+        .clone();
+    let wiki = Wiki::new(wiki_path, config.templates_dir.clone(), config);
+    let mut wiki = wiki;
+    wiki.add_tag(&page_name, &tag_name, config)?;
 
-        if choice > 0 && choice <= config.wiki_paths.len() {
-            // Get the wiki path
-            let wiki_path = config.wiki_paths.values().nth(choice - 1).unwrap().clone();
+    writeln!(
+        stdout,
+        "{}",
+        style::style(format!("Tag '{}' added to page '{}' successfully.", tag_name, page_name))
+            .bold()
+            .green()
+    )?;
+    stdout.flush()?;
 
-            // Print the list of pages in the wiki
-            println!(
-                "{}",
-                style("Select a page to modify tags for:").with(Color::Green)
-            );
-            stdout.execute(cursor::MoveTo(0, 5 + config.wiki_paths.len() as u16 + 1))?;
-            let mut pages = Vec::new();
-            for (i, entry) in walkdir::WalkDir::new(&wiki_path)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().is_file())
-                .filter(|e| e.path().extension().map_or(false, |ext| ext == "md"))
-                .enumerate()
-            {
-                let page_name = entry.path().file_stem().unwrap().to_str().unwrap();
-                pages.push(page_name.to_string());
-                println!(
-                    "{}",
-                    style(format!("  {}. {}", i + 1, page_name)).with(Color::Blue)
-                );
-            }
-            stdout.execute(cursor::MoveTo(
-                0,
-                5 + config.wiki_paths.len() as u16 + 1 + pages.len() as u16 + 1,
-            ))?;
+    Ok(())
+}
 
-            // Get user input
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
+pub fn remove_tag(
+    stdout: &mut io::Stdout,
+    config: &mut Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    terminal::Clear(ClearType::All)?;
 
-            let choice: usize = input
-                .trim()
-                .parse()
-                .map_err(|_| "Invalid choice. Please enter a number.")?;
+    // Ask for page name
+    writeln!(
+        stdout,
+        "{}",
+        style::style("Enter the name of the page to remove a tag from: ").bold().dim()
+    )?;
+    stdout.flush()?;
 
-            if choice > 0 && choice <= pages.len() {
-                let page_name = pages[choice - 1].clone();
+    let mut page_name = String::new();
+    io::stdin().read_line(&mut page_name)?;
+    page_name = page_name.trim().to_string();
 
-                // Prompt for tags to add
-                println!(
-                    "{}",
-                    style("Enter tags to add (comma-separated, or press Enter to skip):")
-                        .with(Color::Green)
-                );
-                stdout.execute(cursor::MoveTo(
-                    0,
-                    7 + config.wiki_paths.len() as u16 + 1 + pages.len() as u16 + 1,
-                ))?;
-                stdout.execute(Clear(ClearType::CurrentLine))?;
-                print!("{}", style("> ").with(Color::DarkGrey));
-                stdout.flush()?;
+    // Ask for tag name
+    writeln!(stdout, "{}", style::style("Enter the tag name: ").bold().dim())?;
+    stdout.flush()?;
 
-                let mut input = String::new();
-                io::stdin().read_line(&mut input)?;
+    let mut tag_name = String::new();
+    io::stdin().read_line(&mut tag_name)?;
+    tag_name = tag_name.trim().to_string();
 
-                let add_tags: Vec<String> = input
-                    .trim()
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .collect();
+    let wiki_path = config
+        .wiki_paths
+        .get("main")
+        .unwrap()
+        .clone();
+    let wiki = Wiki::new(wiki_path, config.templates_dir.clone(), config);
+    let mut wiki = wiki;
+    wiki.remove_tag(&page_name, &tag_name, config)?;
 
-                // Prompt for tags to remove
-                println!(
-                    "{}",
-                    style("Enter tags to remove (comma-separated, or press Enter to skip):")
-                        .with(Color::Green)
-                );
-                stdout.execute(cursor::MoveTo(
-                    0,
-                    9 + config.wiki_paths.len() as u16 + 1 + pages.len() as u16 + 1,
-                ))?;
-                stdout.execute(Clear(ClearType::CurrentLine))?;
-                print!("{}", style("> ").with(Color::DarkGrey));
-                stdout.flush()?;
+    writeln!(
+        stdout,
+        "{}",
+        style::style(format!("Tag '{}' removed from page '{}' successfully.", tag_name, page_name))
+            .bold()
+            .green()
+    )?;
+    stdout.flush()?;
 
-                let mut input = String::new();
-                io::stdin().read_line(&mut input)?;
+    Ok(())
+}
 
-                let remove_tags: Vec<String> = input
-                    .trim()
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .collect();
+pub fn list_tags_for_page(
+    stdout: &mut io::Stdout,
+    config: &mut Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    terminal::Clear(ClearType::All)?;
 
-                // Modify tags
-                let wiki = Wiki::new(wiki_path.clone(), config.templates_dir.clone(), &config)?;
-                wiki.modify_page_tags(&page_name, &add_tags, &remove_tags)?;
+    // Ask for page name
+    writeln!(
+        stdout,
+        "{}",
+        style::style("Enter the name of the page to list tags for: ").bold().dim()
+    )?;
+    stdout.flush()?;
 
-                stdout.execute(cursor::MoveTo(width as u16, 10))?;
-                stdout.execute(cursor::MoveTo(
-                    0,
-                    11 + config.wiki_paths.len() as u16 + 1 + pages.len() as u16 + 1,
-                ))?;
-                println!("Press Enter to return to Tags menu.");
-                io::stdin().read_line(&mut input)?;
-                break;
-            } else {
-                println!(
-                    "{}",
-                    style("Invalid choice. Please enter a number from the list.")
-                        .with(Color::Yellow)
-                );
-                stdout.execute(cursor::MoveTo(width as u16, 10))?;
-                stdout.execute(cursor::MoveTo(0, 7 + config.wiki_paths.len() as u16 + 1))?;
-            }
-        } else {
-            println!(
-                "{}",
-                style("Invalid choice. Please enter a number from the list.").with(Color::Yellow)
-            );
-            stdout.execute(cursor::MoveTo(width as u16, 10))?;
-            stdout.execute(cursor::MoveTo(0, 5 + config.wiki_paths.len() as u16 + 1))?;
-        }
+    let mut page_name = String::new();
+    io::stdin().read_line(&mut page_name)?;
+    page_name = page_name.trim().to_string();
+
+    let wiki_path = config
+        .wiki_paths
+        .get("main")
+        .unwrap()
+        .clone();
+    let wiki = Wiki::new(wiki_path, config.templates_dir.clone(), config);
+    let tags = wiki.list_tags_for_page(&page_name, config)?;
+
+    writeln!(
+        stdout,
+        "{}",
+        style::style(format!("Tags for page '{}':", page_name)).bold().green()
+    )?;
+    stdout.flush()?;
+
+    for tag in tags {
+        writeln!(stdout, "{}", style::style(tag).dim())?;
+        stdout.flush()?;
     }
+
+    Ok(())
+}
+
+pub fn list_pages_with_tag(
+    stdout: &mut io::Stdout,
+    config: &mut Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    terminal::Clear(ClearType::All)?;
+
+    // Ask for tag name
+    writeln!(stdout, "{}", style::style("Enter the tag name: ").bold().dim())?;
+    stdout.flush()?;
+
+    let mut tag_name = String::new();
+    io::stdin().read_line(&mut tag_name)?;
+    tag_name = tag_name.trim().to_string();
+
+    let wiki_path = config
+        .wiki_paths
+        .get("main")
+        .unwrap()
+        .clone();
+    let wiki = Wiki::new(wiki_path, config.templates_dir.clone(), config);
+    let pages = wiki.list_pages_with_tag(&tag_name, config)?;
+
+    writeln!(
+        stdout,
+        "{}",
+        style::style(format!("Pages with tag '{}':", tag_name)).bold().green()
+    )?;
+    stdout.flush()?;
+
+    for page in pages {
+        writeln!(stdout, "{}", style::style(page).dim())?;
+        stdout.flush()?;
+    }
+
     Ok(())
 }
