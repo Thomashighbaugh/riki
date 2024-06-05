@@ -1,8 +1,8 @@
 // src/main.rs
 
-mod cli;
 mod config;
 mod wiki;
+mod cli;
 
 use cli::RikiCLI;
 use config::Config;

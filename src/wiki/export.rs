@@ -1,9 +1,9 @@
 // src/wiki/export.rs
 
+use pulldown_cmark::{html, Options, Parser};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use pulldown_cmark::{html, Options, Parser};
 use std::process::Command;
 
 use crate::config::Config;
@@ -48,20 +48,24 @@ impl Wiki {
                 html::push_html(&mut output_content, parser);
 
                 // Write HTML to file
-                let output_path = output_file
-                    .unwrap_or_else(|| self.root_dir.join(format!("{}.html", page_name.unwrap_or("all"))));
+                let output_path = output_file.unwrap_or_else(|| {
+                    self.root_dir
+                        .join(format!("{}.html", page_name.unwrap_or("all")))
+                });
                 let mut file = File::create(output_path)?;
                 file.write_all(output_content.as_bytes())?;
                 println!("Exported to HTML: {}", output_path.display());
             }
             "pdf" => {
                 // Export to PDF (requires external tools like Pandoc)
-                let output_path = output_file
-                    .unwrap_or_else(|| self.root_dir.join(format!("{}.pdf", page_name.unwrap_or("all"))));
+                let output_path = output_file.unwrap_or_else(|| {
+                    self.root_dir
+                        .join(format!("{}.pdf", page_name.unwrap_or("all")))
+                });
                 let command = Command::new("pandoc")
                     .arg("--from=markdown")
                     .arg("--to=pdf")
-                    .arg(format!(\"--output={}\", output_path.display()))
+                    .arg(format!("--output={}", output_path.display()))
                     .stdin(std::process::Stdio::piped())
                     .spawn()?;
 
@@ -74,8 +78,10 @@ impl Wiki {
             }
             "text" => {
                 // Write plain text to file
-                let output_path = output_file
-                    .unwrap_or_else(|| self.root_dir.join(format!("{}.txt", page_name.unwrap_or("all"))));
+                let output_path = output_file.unwrap_or_else(|| {
+                    self.root_dir
+                        .join(format!("{}.txt", page_name.unwrap_or("all")))
+                });
                 let mut file = File::create(output_path)?;
                 file.write_all(output_content.as_bytes())?;
                 println!("Exported to plain text: {}", output_path.display());

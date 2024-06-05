@@ -8,7 +8,6 @@ use crossterm::{
 };
 use std::error::Error;
 use std::io::{self, Write};
-use std::path::PathBuf;
 
 use crate::config::Config;
 use crate::wiki::Wiki;

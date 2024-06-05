@@ -1,19 +1,22 @@
 // src/cli/new_page.rs
 
-use std::io::{self, Write};
-use std::error::Error;
-use std::path::PathBuf;
 use crossterm::{
     cursor,
-    style::{self, Color, PrintStyledContent, Print},
-    terminal::{self, ClearType, Clear, size},
+    style::{self, Color, Print, PrintStyledContent},
+    terminal::{self, size, Clear, ClearType},
     ExecutableCommand,
 };
+use std::error::Error;
+use std::io::{self, Write};
+use std::path::PathBuf;
 
-use crate::config::{Config};
+use crate::config::Config;
 use crate::wiki::Wiki;
 
-pub fn print_new_page_menu(stdout: &mut io::Stdout, config: &mut Config) -> Result<(), Box<dyn Error>> {
+pub fn print_new_page_menu(
+    stdout: &mut io::Stdout,
+    config: &mut Config,
+) -> Result<(), Box<dyn Error>> {
     let (width, _) = terminal::size()?;
 
     loop {
@@ -26,10 +29,16 @@ pub fn print_new_page_menu(stdout: &mut io::Stdout, config: &mut Config) -> Resu
         println!("");
 
         // Print the list of wikis
-        println!("{}", style("Select a wiki to create a new page in:").with(Color::Green));
+        println!(
+            "{}",
+            style("Select a wiki to create a new page in:").with(Color::Green)
+        );
         stdout.execute(cursor::MoveTo(0, 3))?;
         for (i, (wiki_name, _)) in config.wiki_paths.iter().enumerate() {
-            println!("{}", style(format!("  {}. {}", i + 1, wiki_name)).with(Color::Blue));
+            println!(
+                "{}",
+                style(format!("  {}. {}", i + 1, wiki_name)).with(Color::Blue)
+            );
         }
         stdout.execute(cursor::MoveTo(0, 3 + config.wiki_paths.len() as u16 + 1))?;
 
@@ -44,15 +53,13 @@ pub fn print_new_page_menu(stdout: &mut io::Stdout, config: &mut Config) -> Resu
 
         if choice > 0 && choice <= config.wiki_paths.len() {
             // Get the wiki path
-            let wiki_path = config
-                .wiki_paths
-                .values()
-                .nth(choice - 1)
-                .unwrap()
-                .clone();
+            let wiki_path = config.wiki_paths.values().nth(choice - 1).unwrap().clone();
 
             // Prompt for the page name
-            println!("{}", style("Enter a name for the new page:").with(Color::Green));
+            println!(
+                "{}",
+                style("Enter a name for the new page:").with(Color::Green)
+            );
             stdout.execute(cursor::MoveTo(0, 5 + config.wiki_paths.len() as u16 + 1))?;
             stdout.execute(Clear(ClearType::CurrentLine))?;
             print!("{}", style("> ").with(Color::DarkGrey));
@@ -82,9 +89,15 @@ pub fn print_new_page_menu(stdout: &mut io::Stdout, config: &mut Config) -> Resu
                 let mut templates = Vec::new();
                 for (i, (template_name, _)) in config.wiki_paths.iter().enumerate() {
                     templates.push(template_name.to_string());
-                    println!("{}", style(format!("  {}. {}", i + 1, template_name)).with(Color::Blue));
+                    println!(
+                        "{}",
+                        style(format!("  {}. {}", i + 1, template_name)).with(Color::Blue)
+                    );
                 }
-                stdout.execute(cursor::MoveTo(0, 9 + config.wiki_paths.len() as u16 + 1 + templates.len() as u16 + 1))?;
+                stdout.execute(cursor::MoveTo(
+                    0,
+                    9 + config.wiki_paths.len() as u16 + 1 + templates.len() as u16 + 1,
+                ))?;
 
                 // Get user input
                 let mut input = String::new();
@@ -115,7 +128,7 @@ pub fn print_new_page_menu(stdout: &mut io::Stdout, config: &mut Config) -> Resu
                         wiki_path.display(),
                         template_name
                     );
-                },
+                }
                 None => {
                     wiki.create_page_interactive(page_name)?;
                     println!(
@@ -126,15 +139,24 @@ pub fn print_new_page_menu(stdout: &mut io::Stdout, config: &mut Config) -> Resu
                 }
             }
             if let Err(err) = wiki.index_page(page_name.to_string()) {
-                eprintln!("Warning: Failed to index page '{}'. Error: {}", page_name, err);
+                eprintln!(
+                    "Warning: Failed to index page '{}'. Error: {}",
+                    page_name, err
+                );
             }
             stdout.execute(cursor::MoveTo(width as u16, 10))?;
-            stdout.execute(cursor::MoveTo(0, 12 + config.wiki_paths.len() as u16 + 1 + templates.len() as u16 + 1))?;
+            stdout.execute(cursor::MoveTo(
+                0,
+                12 + config.wiki_paths.len() as u16 + 1 + templates.len() as u16 + 1,
+            ))?;
             println!("Press Enter to return to main menu.");
             io::stdin().read_line(&mut input)?;
             break;
         } else {
-            println!("{}", style("Invalid choice. Please enter a number from the list.").with(Color::Yellow));
+            println!(
+                "{}",
+                style("Invalid choice. Please enter a number from the list.").with(Color::Yellow)
+            );
             stdout.execute(cursor::MoveTo(width as u16, 10))?;
             stdout.execute(cursor::MoveTo(0, 5 + config.wiki_paths.len() as u16 + 1))?;
         }

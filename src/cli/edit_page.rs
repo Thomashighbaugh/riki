@@ -104,4 +104,4 @@ pub fn print_edit_page_menu(stdout: &mut io::Stdout, config: &mut Config) -> Res
         }
     }
     Ok(())
-}
+}s
