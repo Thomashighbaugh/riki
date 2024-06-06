@@ -1,17 +1,24 @@
+// File: riki/templates/tech-comparison.md
 ---
-title: {{page_name}} Concept
+title: {{page_name}} Comparison
 tags:
-  - concept
-  - {{technology}}
-description: Explanation of the {{technology}} concept.
+  - comparison
+  - technology
+  - {{technology1}}
+  - {{technology2}}
+description: Comparison of {{technology1}} and {{technology2}}.
 ---
 
-# {{page_name}} Concept
+# {{page_name}} Comparison
 
-## Definition
+## {{technology1}}
 
-## Examples
+### Pros
+### Cons
 
-## Use Cases
+## {{technology2}}
 
-## Further Reading
+### Pros
+### Cons
+
+## Conclusion

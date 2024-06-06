@@ -1,99 +1,80 @@
-// THIS IS THE FILE: src/main.rs
-
-use config::Config;
+// main.rs
 use std::env;
-use std::fs;
-use std::path::PathBuf;
+use std::process;
 
-use clap::{App, Arg, ArgMatches};
-use crossterm::{
-    cursor,
-    style::{self, PrintStyledContent, Print},
-    terminal::{self, Clear, ClearType},
-};
+mod config;
+mod search;
+mod add;
+mod edit;
+mod view;
+mod delete;
 
-use riki::cli::{
-    add_wiki,
-    backlinks,
-    delete_page,
-    edit_page,
-    graph,
-    history,
-    import_pages,
-    list_pages,
-    main_menu,
-    new_page,
-    search,
-    tags,
-    templates,
-    revert_page,
-    export_pages,
-};
-use riki::config::{install_default_templates, load_config, save_config};
+fn main() {
+    let args: Vec<String> = env::args().collect();
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let matches = App::new("Riki Wiki")
-        .version("0.1.0")
-        .author("Thomas Leon Highbaugh <me@thomasleonhighbaugh.me>")
-        .about("Your Personal Knowledge Wiki Management Solution")
-        .arg(
-            Arg::new("wiki")
-                .short('w')
-                .long("wiki")
-                .value_name("WIKI_NAME")
-                .help("The name of the wiki to use (from config.yaml)")
-                .takes_value(true),
-        )
-        .get_matches();
-
-    let config_path = dirs::config_dir().unwrap().join("riki/config.yaml");
-    let mut config = if config_path.exists() {
-        load_config(&config_path)
-    } else {
-        // Install default templates if config.yaml is not found
-        let templates_dir = dirs::config_dir().unwrap().join("riki/templates");
-        install_default_templates(&templates_dir)?;
-        Config::default()
-    };
-
-    let wiki_name = matches.value_of("wiki");
-
-    if let Some(wiki_name) = wiki_name {
-        if config.wiki_paths.contains_key(wiki_name) {
-            config.wiki_paths
-                .get_mut(wiki_name)
-                .and_then(|wiki_path| {
-                    // Update the current wiki
-                    config.wiki_paths.insert("main".to_string(), wiki_path.clone());
-                    Some(())
-                });
-        } else {
-            println!("Invalid Wiki name.");
-            return Ok(());
-        }
+    if args.len() < 2 {
+        print_help(); // Print help if no command is provided
+        return;
     }
 
-    let mut stdout = io::stdout();
-    terminal::enable_raw_mode()?;
+    let command = &args[1];
 
-    // Clear the terminal
-    terminal::Clear(ClearType::All)?;
+    match command.as_str() {
+        "config" => {
+            if args.len() < 3 {
+                println!("Please provide at least one wiki directory to configure.");
+                process::exit(1);
+            }
+            config::configure_wikis(&args[2..])
+        },
+        "search" => {
+            if args.len() < 2 {
+                println!("Please provide a search term.");
+                process::exit(1);
+            }
+            search::search_wikis(&args[2..])
+        },
+        "add" => {
+            if args.len() < 3 {
+                println!("Please provide a wiki directory and page name.");
+                process::exit(1);
+            }
+            add::add_page(&args[2..])
+        },
+        "edit" => {
+            if args.len() < 3 {
+                println!("Please provide a wiki directory and page name.");
+                process::exit(1);
+            }
+            edit::edit_page(&args[2..])
+        },
+        "view" => {
+            if args.len() < 3 {
+                println!("Please provide a wiki directory and page name.");
+                process::exit(1);
+            }
+            view::view_page(&args[2..])
+        },
+        "delete" => {
+            if args.len() < 3 {
+                println!("Please provide a wiki directory and page name.");
+                process::exit(1);
+            }
+            delete::delete_page(&args[2..])
+        },
+        _ => {
+            println!("Invalid command. Use 'config', 'search', 'add', 'edit', 'view', or 'delete'.");
+            process::exit(1);
+        }
+    }
+}
 
-    // Print welcome message
-    let (_width, height) = terminal::size()?;
-    writeln!(
-        stdout,
-        "{}",
-        style::style("Welcome to Riki Wiki!").bold().green()
-    )?;
-    stdout.flush()?;
-
-    cursor::MoveTo(0, height - 1)?;
-
-    main_menu(&mut stdout, &mut config)?;
-
-    // Disable raw mode on exit
-    terminal::disable_raw_mode()?;
-
-    Ok(())
+fn print_help() {
+    println!("Available commands:");
+    println!("  config  - Configure wiki directories");
+    println!("  search  - Search wikis for a term");
+    println!("  add     - Add a new page to a wiki");
+    println!("  edit    - Edit an existing page");
+    println!("  view    - View the content of a page");
+    println!("  delete  - Delete a page from a wiki");
 }

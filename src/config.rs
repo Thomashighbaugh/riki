@@ -1,107 +1,56 @@
-// THIS IS THE FILE: src/config.rs
+// config.rs
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::Path;
+use serde_json;
 
-use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+pub fn configure_wikis(args: &[String]) {
+    let config_path = Path::new("./.riki_config.json");
 
-use serde::{Deserialize, Serialize};
+    // Load existing configuration (if any)
+    let mut config: serde_json::Value = match config_path.exists() {
+        true => {
+            let mut file = File::open(config_path).unwrap();
+            let mut contents = String::new();
+            file.read_to_string(&mut contents).unwrap();
+            serde_json::from_str(&contents).unwrap()
+        },
+        false => serde_json::from_str("{}").unwrap(),
+    };
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Config {
-    pub wiki_paths: HashMap<String, PathBuf>,
-    pub templates_dir: PathBuf,
-    pub index_dir: PathBuf,
-    pub editor: Option<String>,
-    pub snippet_length: usize,
-}
+    // Handle arguments for adding or removing directories
+    for arg in args {
+        let wiki_dir = arg.trim();
 
-impl Config {
-    pub fn default() -> Config {
-        let wiki_paths = HashMap::from([
-            (
-                "main".to_string(),
-                dirs::data_local_dir().unwrap().join("riki/wiki"),
-            ),
-        ]);
+        // Check if the directory exists
+        if !Path::new(wiki_dir).exists() {
+            println!("Error: Directory '{}' does not exist.", wiki_dir);
+            continue;
+        }
 
-        Config {
-            wiki_paths,
-            templates_dir: dirs::config_dir().unwrap().join("riki/templates"),
-            index_dir: dirs::data_local_dir().unwrap().join("riki/index"),
-            editor: env::var("EDITOR").ok(),
-            snippet_length: 200,
+        // Add or remove based on the argument
+        if arg.starts_with("+") {
+            // Add wiki directory
+            let wiki_dir = wiki_dir[1..].to_string(); // Remove the '+'
+            let wikis = config["wikis"].as_array_mut().unwrap(); // Fix: remove mut
+            wikis.push(serde_json::Value::String(wiki_dir));
+        } else if arg.starts_with("-") {
+            // Remove wiki directory
+            let wiki_dir = wiki_dir[1..].to_string(); // Remove the '-'
+            let wikis = config["wikis"].as_array_mut().unwrap();
+            wikis.retain(|wiki| {
+                wiki.as_str().unwrap() != &wiki_dir 
+            });
+        } else {
+            println!("Invalid argument: '{}'. Use '+' to add or '-' to remove.", arg);
+            continue;
         }
     }
-}
 
-pub fn load_config(config_path: &Path) -> Config {
-    let config_str = fs::read_to_string(config_path).map_err(|err| {
-        println!(
-            "Error reading config file: {} - {}",
-            config_path.display(),
-            err
-        );
-        std::process::exit(1);
-    })
-    .unwrap();
+    // Save the updated configuration
+    let updated_config = serde_json::to_string(&config).unwrap();
+    let mut file = File::create(config_path).unwrap();
+    file.write_all(updated_config.as_bytes()).unwrap();
 
-    serde_yaml::from_str(&config_str).map_err(|err| {
-        println!(
-            "Error parsing config file: {} - {}",
-            config_path.display(),
-            err
-        );
-        std::process::exit(1);
-    })
-    .unwrap()
-}
-
-pub fn save_config(config: &Config) {
-    let config_path = dirs::config_dir().unwrap().join("riki/config.yaml");
-    let config_str = serde_yaml::to_string(config).map_err(|err| {
-        println!(
-            "Error serializing config file: {} - {}",
-            config_path.display(),
-            err
-        );
-        std::process::exit(1);
-    })
-    .unwrap();
-
-    fs::write(config_path, config_str).map_err(|err| {
-        println!(
-            "Error writing config file: {} - {}",
-            config_path.display(),
-            err
-        );
-        std::process::exit(1);
-    })
-    .unwrap();
-}
-
-pub fn install_default_templates(templates_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    fs::create_dir_all(templates_dir)?;
-
-    let default_templates = vec![
-        ("concept.md", include_str!("templates/concept.md")),
-        ("tech-comparison.md", include_str!("templates/tech-comparison.md")),
-        ("book-notes.md", include_str!("templates/book-notes.md")),
-        ("problem-solution.md", include_str!("templates/problem-solution.md")),
-        ("troubleshooting.md", include_str!("templates/troubleshooting.md")),
-        ("vulnerability.md", include_str!("templates/vulnerability.md")),
-        ("api-doc.md", include_str!("templates/api-doc.md")),
-        ("shell-command.md", include_str!("templates/shell-command.md")),
-        ("project-idea.md", include_str!("templates/project-idea.md")),
-        ("code-snippet.md", include_str!("templates/code-snippet.md")),
-        ("architecture-diagram.md", include_str!("templates/architecture-diagram.md")),
-        ("interview-prep.md", include_str!("templates/interview-prep.md")),
-        ("tool-doc.md", include_str!("templates/tool-doc.md")),
-    ];
-
-    for (file_name, content) in default_templates {
-        let file_path = templates_dir.join(file_name);
-        fs::write(file_path, content)?;
-    }
-
-    Ok(())
+    println!("Configuration updated.");
 }
