@@ -1,14 +1,16 @@
+use std::error::Error;
+use std::sync::mpsc;
+use std::thread;
 use crossterm::{
     cursor,
     event::{read, Event, KeyCode, KeyEvent, KeyModifiers},
     style::PrintStyledContent,
     terminal,
 };
-use std::error::Error;
-use std::sync::mpsc;
-use std::thread;
-use tui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use tui::{backend::TermionBackend, Terminal};
+use tui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use tui::layout::{Constraint, Direction, Layout};
+use tui::style::{Color, Modifier, Style};
 
 mod add;
 mod config;
@@ -26,27 +28,46 @@ fn main() -> Result<(), Box<dyn Error>> {
     terminal.hide_cursor()?;
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || loop {
-        if let Event::Key(KeyEvent {
-            code,
-            modifiers,
-            kind,
-            state,
-        }) = read().unwrap()
-        {
+        if let Event::Key(KeyEvent { code, modifiers, kind, state }) = read().unwrap() { // Include `kind` and `state`
             if code == KeyCode::Char('q') {
                 break;
             }
-            tx.send(KeyEvent {
-                code,
-                modifiers,
-                kind,
-                state,
-            })
-            .unwrap(); // Include all fields
+            tx.send(KeyEvent { code, modifiers, kind, state }).unwrap();
         }
     });
 
+    let mut state = ListState::default();
+    state.select(Some(0));
+
     loop {
+        terminal.draw(|f| {
+            let size = f.size();
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(1)
+                .constraints([Constraint::Length(3), Constraint::Min(0)])
+                .split(size);
+
+            let items = vec![
+                ListItem::new("Config"),
+                ListItem::new("Search"),
+                ListItem::new("Add"),
+                ListItem::new("Edit"),
+                ListItem::new("View"),
+                ListItem::new("Delete"),
+                ListItem::new("Help"),
+                ListItem::new("Quit"),
+            ];
+
+            let list = List::new(items)
+                .block(Block::default().title("Riki").borders(Borders::ALL))
+                .style(Style::default().fg(Color::White))
+                .highlight_style(Style::default().fg(Color::LightGreen))
+                .highlight_symbol("> ");
+
+            f.render_stateful_widget(list, chunks[0], &mut state);
+        })?;
+
         let key = rx.recv().unwrap();
         let args: Vec<String> = std::env::args().collect();
         if key.code == KeyCode::Char('q') {
@@ -59,6 +80,54 @@ fn main() -> Result<(), Box<dyn Error>> {
             KeyCode::Char('c') => {
                 if args.len() > 2 {
                     handle_command(args[1].clone())?;
+                }
+            }
+            KeyCode::Up => {
+                state.select(Some(state.selected().unwrap().saturating_sub(1))); // Use `select` for up/down
+            }
+            KeyCode::Down => {
+                state.select(Some((state.selected().unwrap() + 1) % 8)); // Use `select` for up/down
+            }
+            KeyCode::Enter => {
+                let selected = state.selected().unwrap();
+                match selected {
+                    0 => {
+                        if args.len() > 2 {
+                            handle_command(String::from("config"))?;
+                        }
+                    }
+                    1 => {
+                        if args.len() > 2 {
+                            handle_command(String::from("search"))?;
+                        }
+                    }
+                    2 => {
+                        if args.len() > 2 {
+                            handle_command(String::from("add"))?;
+                        }
+                    }
+                    3 => {
+                        if args.len() > 2 {
+                            handle_command(String::from("edit"))?;
+                        }
+                    }
+                    4 => {
+                        if args.len() > 2 {
+                            handle_command(String::from("view"))?;
+                        }
+                    }
+                    5 => {
+                        if args.len() > 2 {
+                            handle_command(String::from("delete"))?;
+                        }
+                    }
+                    6 => {
+                        ui::display_help()?;
+                    }
+                    7 => {
+                        break;
+                    }
+                    _ => {}
                 }
             }
             _ => {}

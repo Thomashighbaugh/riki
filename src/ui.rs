@@ -1,7 +1,4 @@
 use crossterm::{
-    cursor,
-    event::{read, KeyCode, KeyEvent, KeyModifiers},
-    style::{style, PrintStyledContent},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 use std::error::Error;
@@ -9,9 +6,7 @@ use std::io;
 use tui::{
     backend::TermionBackend,
     layout::{Constraint, Direction, Layout},
-    style::{Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
-    Frame, Terminal,
+    widgets::{Block, Borders, Paragraph, Wrap}, Terminal,
 };
 
 pub fn display_help() -> Result<(), Box<dyn Error>> {
