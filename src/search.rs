@@ -1,52 +1,35 @@
-// search.rs
+use std::error::Error;
 use std::fs;
-use std::path::Path;
-use std::fs::File; 
-use std::io::Read;
+use std::path::PathBuf;
 
-pub fn search_wikis(args: &[String]) {
-    let search_term = &args[0];
+use serde_json::Value;
 
-    // Read wiki directories from config
-    let config_path = Path::new("./.riki_config.json");
-    let mut file = File::open(config_path).unwrap();
-    let mut contents = String::new();
-    file.read_to_string(&mut contents).unwrap();
-    let config: serde_json::Value = serde_json::from_str(&contents).unwrap();
-    let wiki_dirs: Vec<String> = config["wikis"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|wiki| wiki.as_str().unwrap().to_string())
-        .collect();
+pub fn search_wikis(term: &str) -> Result<(), Box<dyn Error>> {
+    let wiki_dir = PathBuf::from(".riki");
+    if !wiki_dir.exists() {
+        println!("No wikis configured. Run `riki config <wiki_url>` first.");
+        return Ok(());
+    }
 
-    // Loop through each wiki directory
-    for wiki_dir in wiki_dirs {
-        let wiki_path = Path::new(&wiki_dir);
+    let wiki_files = fs::read_dir(wiki_dir)?;
+    for wiki_file in wiki_files {
+        let wiki_file = wiki_file?;
+        let wiki_path = wiki_file.path(); // Borrow the path
+        let wiki_name = wiki_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .trim_end_matches(".json");
+        let wiki_data: Value = serde_json::from_reader(fs::File::open(&wiki_path)?)?; // Pass a reference
+        let pages = wiki_data["pages"].as_object().unwrap();
 
-        // Iterate through files in the wiki directory
-        if let Ok(entries) = fs::read_dir(wiki_path) {
-            // Handle the result correctly using `if let`
-            for entry in entries {
-                let entry = entry.unwrap();
-                let file_name = entry.file_name();
-                let file_name_str = file_name.to_str().unwrap();
-
-                // Check if the file is a Markdown file
-                if file_name_str.ends_with(".md") {
-                    let file_path = entry.path();
-                    let mut file = File::open(file_path).unwrap();
-                    let mut contents = String::new();
-                    file.read_to_string(&mut contents).unwrap();
-
-                    // Search for the term in the file contents
-                    if contents.contains(search_term) {
-                        println!("{}: {}", wiki_dir, file_name_str);
-                    }
-                }
+        for (page_name, page_data) in pages {
+            if page_data["content"].as_str().unwrap().contains(term) {
+                println!("{}: {}", wiki_name, page_name);
             }
-        } else {
-            println!("Error reading directory '{}'.", wiki_path.display());
         }
     }
+
+    Ok(())
 }

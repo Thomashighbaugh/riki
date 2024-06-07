@@ -1,58 +1,36 @@
-// view.rs
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
-use std::process;
+use std::error::Error;
+use std::fs;
+use std::path::PathBuf;
 
-pub fn view_page(args: &[String]) {
-    if args.len() < 2 {
-        println!("Please provide a wiki directory and page name.");
-        return;
+use serde_json::Value;
+
+pub fn view_page(page_name: &str) -> Result<(), Box<dyn Error>> {
+    let wiki_dir = PathBuf::from(".riki");
+
+    if !wiki_dir.exists() {
+        return Err("No wikis configured. Run `riki config <wiki_url>` first.".into());
     }
 
-    let wiki_dir = &args[0];
-    let page_name = &args[1];
+    for wiki_file in fs::read_dir(wiki_dir)? {
+        let wiki_file = wiki_file?;
+        let wiki_path = wiki_file.path();
+        let wiki_name = wiki_path
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .map(|name| name.trim_end_matches(".json"))
+            .ok_or("Failed to parse wiki name")?;
 
-    let page_path = Path::new(wiki_dir).join(format!("{}.md", page_name));
+        let wiki_data: Value = serde_json::from_reader(fs::File::open(&wiki_path)?)?;
+        let pages = wiki_data["pages"].as_object().ok_or("Failed to parse wiki pages")?;
 
-    if !page_path.exists() {
-        println!("Page '{}' not found in '{}'.", page_name, wiki_dir);
-        return;
-    }
-
-    let mut file = File::open(&page_path).unwrap_or_else(|err| {
-        println!("Error opening page '{}': {}", page_name, err);
-        process::exit(1); // Exit if the file opening fails
-    });
-    let mut contents = String::new();
-    file.read_to_string(&mut contents).unwrap();
-
-    // Basic Markdown Parsing (for headings, lists, and bold/italic)
-    let mut in_list = false; // Flag to track if we are currently inside a list
-    for line in contents.lines() {
-        if line.starts_with("#") {
-            let level = line.chars().take_while(|c| *c == '#').count();
-            let heading = line.trim_start_matches('#').trim();
-            println!("{}{}", "#".repeat(level), heading);
-        } else if line.starts_with("- ") && !in_list {
-            // Start of a list
-            println!("- {}", line.trim_start_matches("- ").trim());
-            in_list = true;
-        } else if line.starts_with("  - ") && in_list {
-            // Continued list
-            println!("  - {}", line.trim_start_matches("  - ").trim());
-        } else if line.starts_with("*") && line.ends_with("*") {
-            // Bold text
-            println!("**{}**", &line[1..line.len() - 1]);
-        } else if line.starts_with("_") && line.ends_with("_") {
-            // Italic text
-            println!("_{}_", &line[1..line.len() - 1]);
-        } else if line.is_empty() && in_list {
-            // End of list
-            in_list = false;
-            println!("");
-        } else {
-            println!("{}", line);
+        if let Some(page_data) = pages.get(page_name) {
+            let content = page_data["content"].as_str().ok_or("Failed to parse page content")?;
+            println!("{}:", wiki_name);
+            println!("{}", content);
+            return Ok(());
         }
     }
+
+    Err("Page not found".into())
 }
+

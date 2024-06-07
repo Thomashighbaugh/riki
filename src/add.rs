@@ -1,58 +1,45 @@
-// add.rs
-use std::fs::File;
+use std::error::Error;
+use std::fs;
 use std::io;
-use std::io::Write;
-use std::path::Path;
-use std::process;
+use std::path::PathBuf;
 
-pub fn add_page(args: &[String]) {
-    let wiki_dir = &args[0];
-    let page_name = &args[1];
+use serde_json::{json, Value}; // Import the `json!` macro
 
-    // Check for existing page
-    let page_path = Path::new(wiki_dir).join(format!("{}.md", page_name));
-    if page_path.exists() {
-        println!(
-            "A page with the name '{}' already exists in this wiki. Overwrite? (y/n)",
-            page_name
-        );
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
-        if input.trim().to_lowercase() != "y" {
-            println!("Page creation cancelled.");
-            return;
+pub fn add_page(page_name: &str) -> Result<(), Box<dyn Error>> {
+    let wiki_dir = PathBuf::from(".riki");
+    if !wiki_dir.exists() {
+        println!("No wikis configured. Run `riki config <wiki_url>` first.");
+        return Ok(());
+    }
+
+    let wiki_files = fs::read_dir(wiki_dir)?;
+    for wiki_file in wiki_files {
+        let wiki_file = wiki_file?;
+        let wiki_path = wiki_file.path();
+        let wiki_name = wiki_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .trim_end_matches(".json");
+        let mut wiki_data: Value = serde_json::from_reader(fs::File::open(&wiki_path)?)?;
+        let pages = wiki_data["pages"].as_object_mut().unwrap();
+
+        if !pages.contains_key(page_name) {
+            println!("{}: {}", wiki_name, page_name);
+            println!("Enter new content:");
+            let mut new_content = String::new();
+            io::stdin().read_line(&mut new_content)?;
+            new_content = new_content.trim().to_string();
+
+            pages.insert(page_name.to_string(), json!({ "content": new_content })); // Now it works
+            let wiki_data_json = serde_json::to_string(&wiki_data)?;
+            fs::write(&wiki_path, wiki_data_json)?;
+            println!("Page added.");
+            return Ok(());
         }
     }
 
-    // Create new page file
-    let mut file = File::create(&page_path).unwrap_or_else(|err| {
-        println!("Error creating page '{}': {}", page_name, err);
-        process::exit(1); // Exit if the file creation fails
-    });
-
-    // Optionally use a template or create a blank file
-    println!("Choose a template or create a blank page:");
-    println!("1. Basic template");
-    println!("2. Blank page");
-    println!("Enter your choice (1 or 2):");
-
-    let mut choice = String::new();
-    io::stdin().read_line(&mut choice).unwrap();
-    let choice: u32 = choice.trim().parse().unwrap();
-
-    match choice {
-        1 => {
-            // Use basic template
-            let template = "# My New Page\n\nThis is a basic template for your new page. You can start editing right away.";
-            file.write_all(template.as_bytes()).unwrap();
-            println!("Page '{}' created using basic template.", page_name);
-        }
-        2 => {
-            // Create a blank page
-            println!("Page '{}' created as blank.", page_name);
-        }
-        _ => {
-            println!("Invalid choice. Page creation cancelled.");
-        }
-    }
+    println!("Page already exists");
+    Ok(())
 }
