@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     terminal.hide_cursor()?;
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || loop {
-        if let Event::Key(KeyEvent { code, modifiers, kind, state }) = read().unwrap() { // Include `kind` and `state`
+        if let Event::Key(KeyEvent { code, modifiers, kind, state }) = read().unwrap() { 
             if code == KeyCode::Char('q') {
                 break;
             }
@@ -77,48 +77,55 @@ fn main() -> Result<(), Box<dyn Error>> {
             KeyCode::Char('h') => {
                 ui::display_help()?;
             }
-            KeyCode::Char('c') => {
-                if args.len() > 2 {
-                    handle_command(args[1].clone())?;
-                }
-            }
             KeyCode::Up => {
-                state.select(Some(state.selected().unwrap().saturating_sub(1))); // Use `select` for up/down
+                state.select(Some(state.selected().unwrap().saturating_sub(1)));
             }
             KeyCode::Down => {
-                state.select(Some((state.selected().unwrap() + 1) % 8)); // Use `select` for up/down
+                state.select(Some((state.selected().unwrap() + 1) % 8));
             }
             KeyCode::Enter => {
                 let selected = state.selected().unwrap();
                 match selected {
                     0 => {
                         if args.len() > 2 {
-                            handle_command(String::from("config"))?;
+                            handle_command(String::from("config"), &args[2..])?; // Pass args
+                        } else {
+                            println!("Missing wiki URL");
                         }
                     }
                     1 => {
                         if args.len() > 2 {
-                            handle_command(String::from("search"))?;
+                            handle_command(String::from("search"), &args[2..])?; // Pass args
+                        } else {
+                            println!("Missing search term");
                         }
                     }
                     2 => {
                         if args.len() > 2 {
-                            handle_command(String::from("add"))?;
+                            handle_command(String::from("add"), &args[2..])?; // Pass args
+                        } else {
+                            println!("Missing page name");
                         }
                     }
                     3 => {
                         if args.len() > 2 {
-                            handle_command(String::from("edit"))?;
+                            handle_command(String::from("edit"), &args[2..])?; // Pass args
+                        } else {
+                            println!("Missing page name");
                         }
                     }
                     4 => {
                         if args.len() > 2 {
-                            handle_command(String::from("view"))?;
+                            handle_command(String::from("view"), &args[2..])?; // Pass args
+                        } else {
+                            println!("Missing page name");
                         }
                     }
                     5 => {
                         if args.len() > 2 {
-                            handle_command(String::from("delete"))?;
+                            handle_command(String::from("delete"), &args[2..])?; // Pass args
+                        } else {
+                            println!("Missing page name");
                         }
                     }
                     6 => {
@@ -145,46 +152,46 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn handle_command(command: String) -> Result<(), Box<dyn Error>> {
+fn handle_command(command: String, args: &[String]) -> Result<(), Box<dyn Error>> {
     match command.as_str() {
         "config" => {
-            if let Some(args) = std::env::args().nth(2) {
-                config::configure_wikis(&args)?;
+            if let Some(arg) = args.get(0) { // Get the first argument
+                config::configure_wikis(arg)?; // Use the argument
             } else {
                 println!("Missing wiki URL");
             }
         }
         "search" => {
-            if let Some(args) = std::env::args().nth(2) {
-                search::search_wikis(&args)?;
+            if let Some(arg) = args.get(0) { // Get the first argument
+                search::search_wikis(arg)?; // Use the argument
             } else {
                 println!("Missing search term");
             }
         }
         "add" => {
-            if let Some(args) = std::env::args().nth(2) {
-                add::add_page(&args)?;
+            if let Some(arg) = args.get(0) { // Get the first argument
+                add::add_page(arg)?; // Use the argument
             } else {
                 println!("Missing page name");
             }
         }
         "edit" => {
-            if let Some(args) = std::env::args().nth(2) {
-                edit::edit_page(&args)?;
+            if let Some(arg) = args.get(0) { // Get the first argument
+                edit::edit_page(arg)?; // Use the argument
             } else {
                 println!("Missing page name");
             }
         }
         "view" => {
-            if let Some(args) = std::env::args().nth(2) {
-                view::view_page(&args)?;
+            if let Some(arg) = args.get(0) { // Get the first argument
+                view::view_page(arg)?; // Use the argument
             } else {
                 println!("Missing page name");
             }
         }
         "delete" => {
-            if let Some(args) = std::env::args().nth(2) {
-                delete::delete_page(&args)?;
+            if let Some(arg) = args.get(0) { // Get the first argument
+                delete::delete_page(arg)?; // Use the argument
             } else {
                 println!("Missing page name");
             }
