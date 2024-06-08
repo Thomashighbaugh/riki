@@ -11,6 +11,7 @@ use tui::{backend::TermionBackend, Terminal};
 use tui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use tui::layout::{Constraint, Direction, Layout};
 use tui::style::{Color, Modifier, Style};
+use std::io::{stdin, stdout, Write};
 
 mod add;
 mod config;
@@ -21,8 +22,8 @@ mod ui;
 mod view;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let stdout = std::io::stdout();
-    let backend = TermionBackend::new(stdout);
+    let mut stdout = std::io::stdout(); // Get the stdout object
+    let backend = TermionBackend::new(stdout.lock()); // Lock the stdout
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
     terminal.hide_cursor()?;
@@ -87,45 +88,69 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let selected = state.selected().unwrap();
                 match selected {
                     0 => {
-                        if args.len() > 2 {
-                            handle_command(String::from("config"), &args[2..])?; // Pass args
-                        } else {
-                            println!("Missing wiki URL");
+                        // Prompt for Wiki URL
+                        println!("Enter Wiki URL:");
+                        stdout.flush().unwrap(); // Flush the stdout object
+                        let mut input = String::new();
+                        stdin().read_line(&mut input).unwrap();
+                        let input = input.trim();
+                        if !input.is_empty() {
+                            config::configure_wikis(input)?;
                         }
                     }
                     1 => {
-                        if args.len() > 2 {
-                            handle_command(String::from("search"), &args[2..])?; // Pass args
-                        } else {
-                            println!("Missing search term");
+                        // Prompt for Search Term
+                        println!("Enter Search Term:");
+                        stdout.flush().unwrap(); // Flush the stdout object
+                        let mut input = String::new();
+                        stdin().read_line(&mut input).unwrap();
+                        let input = input.trim();
+                        if !input.is_empty() {
+                            search::search_wikis(input)?;
                         }
                     }
                     2 => {
-                        if args.len() > 2 {
-                            handle_command(String::from("add"), &args[2..])?; // Pass args
-                        } else {
-                            println!("Missing page name");
+                        // Prompt for Page Name
+                        println!("Enter Page Name:");
+                        stdout.flush().unwrap(); // Flush the stdout object
+                        let mut input = String::new();
+                        stdin().read_line(&mut input).unwrap();
+                        let input = input.trim();
+                        if !input.is_empty() {
+                            add::add_page(input)?;
                         }
                     }
                     3 => {
-                        if args.len() > 2 {
-                            handle_command(String::from("edit"), &args[2..])?; // Pass args
-                        } else {
-                            println!("Missing page name");
+                        // Prompt for Page Name
+                        println!("Enter Page Name:");
+                        stdout.flush().unwrap(); // Flush the stdout object
+                        let mut input = String::new();
+                        stdin().read_line(&mut input).unwrap();
+                        let input = input.trim();
+                        if !input.is_empty() {
+                            edit::edit_page(input)?;
                         }
                     }
                     4 => {
-                        if args.len() > 2 {
-                            handle_command(String::from("view"), &args[2..])?; // Pass args
-                        } else {
-                            println!("Missing page name");
+                        // Prompt for Page Name
+                        println!("Enter Page Name:");
+                        stdout.flush().unwrap(); // Flush the stdout object
+                        let mut input = String::new();
+                        stdin().read_line(&mut input).unwrap();
+                        let input = input.trim();
+                        if !input.is_empty() {
+                            view::view_page(input)?;
                         }
                     }
                     5 => {
-                        if args.len() > 2 {
-                            handle_command(String::from("delete"), &args[2..])?; // Pass args
-                        } else {
-                            println!("Missing page name");
+                        // Prompt for Page Name
+                        println!("Enter Page Name:");
+                        stdout.flush().unwrap(); // Flush the stdout object
+                        let mut input = String::new();
+                        stdin().read_line(&mut input).unwrap();
+                        let input = input.trim();
+                        if !input.is_empty() {
+                            delete::delete_page(input)?;
                         }
                     }
                     6 => {
@@ -152,46 +177,47 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+
 fn handle_command(command: String, args: &[String]) -> Result<(), Box<dyn Error>> {
     match command.as_str() {
         "config" => {
-            if let Some(arg) = args.get(0) { // Get the first argument
-                config::configure_wikis(arg)?; // Use the argument
+            if let Some(arg) = args.get(0) { 
+                config::configure_wikis(arg)?; 
             } else {
                 println!("Missing wiki URL");
             }
         }
         "search" => {
-            if let Some(arg) = args.get(0) { // Get the first argument
-                search::search_wikis(arg)?; // Use the argument
+            if let Some(arg) = args.get(0) { 
+                search::search_wikis(arg)?; 
             } else {
                 println!("Missing search term");
             }
         }
         "add" => {
-            if let Some(arg) = args.get(0) { // Get the first argument
-                add::add_page(arg)?; // Use the argument
+            if let Some(arg) = args.get(0) { 
+                add::add_page(arg)?; 
             } else {
                 println!("Missing page name");
             }
         }
         "edit" => {
-            if let Some(arg) = args.get(0) { // Get the first argument
-                edit::edit_page(arg)?; // Use the argument
+            if let Some(arg) = args.get(0) { 
+                edit::edit_page(arg)?; 
             } else {
                 println!("Missing page name");
             }
         }
         "view" => {
-            if let Some(arg) = args.get(0) { // Get the first argument
-                view::view_page(arg)?; // Use the argument
+            if let Some(arg) = args.get(0) { 
+                view::view_page(arg)?; 
             } else {
                 println!("Missing page name");
             }
         }
         "delete" => {
-            if let Some(arg) = args.get(0) { // Get the first argument
-                delete::delete_page(arg)?; // Use the argument
+            if let Some(arg) = args.get(0) { 
+                delete::delete_page(arg)?; 
             } else {
                 println!("Missing page name");
             }
